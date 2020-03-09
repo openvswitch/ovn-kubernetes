@@ -113,7 +113,7 @@ func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
 	}
 
 	podDesc := pod.Namespace + "/" + pod.Name
-	klog.Infof("Deleting pod: %s", podDesc)
+	klog.Infof("Deleting logical port for pod: %s", podDesc)
 
 	logicalPort := podLogicalPortName(pod)
 	portInfo, err := oc.logicalPortCache.get(logicalPort)

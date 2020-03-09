@@ -335,6 +335,7 @@ func podScheduled(pod *kapi.Pod) bool {
 // WatchPods starts the watching of Pod resource and calls back the appropriate handler logic
 func (oc *Controller) WatchPods() error {
 	var retryPods sync.Map
+	var completedPods sync.Map
 	_, err := oc.watchFactory.AddPodHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			pod := obj.(*kapi.Pod)
@@ -351,6 +352,7 @@ func (oc *Controller) WatchPods() error {
 				// Handle unscheduled pods later in UpdateFunc
 				retryPods.Store(pod.UID, true)
 			}
+			completedPods.Store(pod.UID, false)
 		},
 		UpdateFunc: func(old, newer interface{}) {
 			pod := newer.(*kapi.Pod)
@@ -366,11 +368,17 @@ func (oc *Controller) WatchPods() error {
 					retryPods.Delete(pod.UID)
 				}
 			}
+			completed, found := completedPods.Load(pod.UID)
+			if pod.Status.Phase == kapi.PodSucceeded && found && completed == false {
+				oc.deleteLogicalPort(pod)
+				completedPods.Store(pod.UID, true)
+			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			pod := obj.(*kapi.Pod)
 			oc.deleteLogicalPort(pod)
 			retryPods.Delete(pod.UID)
+			completedPods.Delete(pod.UID)
 		},
 	}, oc.syncPods)
 	return err
