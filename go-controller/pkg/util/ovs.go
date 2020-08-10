@@ -346,32 +346,6 @@ func RunOVNAppctlWithTimeout(timeout int, args ...string) (string, string, error
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
-// Run the ovn-ctl command and retry if "Connection refused"
-// poll waitng for service to become available
-func runOVNretry(cmdPath string, envVars []string, args ...string) (*bytes.Buffer, *bytes.Buffer, error) {
-
-	retriesLeft := 200
-	for {
-		stdout, stderr, err := runWithEnvVars(cmdPath, envVars, args...)
-		if err == nil {
-			return stdout, stderr, err
-		}
-
-		// Connection refused
-		// Master may not be up so keep trying
-		if strings.Contains(stderr.String(), "Connection refused") {
-			if retriesLeft == 0 {
-				return stdout, stderr, err
-			}
-			retriesLeft--
-			time.Sleep(2 * time.Second)
-		} else {
-			// Some other problem for caller to handle
-			return stdout, stderr, fmt.Errorf("OVN command '%s %s' failed: %s", cmdPath, strings.Join(args, " "), err)
-		}
-	}
-}
-
 var SkippedNbctlDaemonCounter uint64
 
 // getNbctlSocketPath returns the OVN_NB_DAEMON environment variable to add to
@@ -456,7 +430,7 @@ func getNbOVSDBArgs(command string, args ...string) []string {
 // domain sockets to connect to the ovsdb-server backing the OVN NB database.
 func RunOVNNbctlUnix(args ...string) (string, string, error) {
 	cmdArgs, envVars := getNbctlArgsAndEnv(ovsCommandTimeout, args...)
-	stdout, stderr, err := runOVNretry(runner.nbctlPath, envVars, cmdArgs...)
+	stdout, stderr, err := runWithEnvVars(runner.nbctlPath, envVars, cmdArgs...)
 	return strings.Trim(strings.TrimFunc(stdout.String(), unicode.IsSpace), "\""),
 		stderr.String(), err
 }
@@ -465,7 +439,7 @@ func RunOVNNbctlUnix(args ...string) (string, string, error) {
 func RunOVNNbctlWithTimeout(timeout int, args ...string) (string, string, error) {
 	cmdArgs, envVars := getNbctlArgsAndEnv(timeout, args...)
 	start := time.Now()
-	stdout, stderr, err := runOVNretry(runner.nbctlPath, envVars, cmdArgs...)
+	stdout, stderr, err := runWithEnvVars(runner.nbctlPath, envVars, cmdArgs...)
 	if MetricOvnCliLatency != nil {
 		MetricOvnCliLatency.WithLabelValues("ovn-nbctl").Observe(time.Since(start).Seconds())
 	}
@@ -482,7 +456,7 @@ func RunOVNNbctl(args ...string) (string, string, error) {
 func RunOVNSbctlUnix(args ...string) (string, string, error) {
 	cmdArgs := []string{fmt.Sprintf("--timeout=%d", ovsCommandTimeout)}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.sbctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.sbctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimFunc(stdout.String(), unicode.IsSpace), "\""),
 		stderr.String(), err
 }
@@ -507,7 +481,7 @@ func RunOVNSbctlWithTimeout(timeout int, args ...string) (string, string,
 	cmdArgs = append(cmdArgs, fmt.Sprintf("--timeout=%d", timeout))
 	cmdArgs = append(cmdArgs, args...)
 	start := time.Now()
-	stdout, stderr, err := runOVNretry(runner.sbctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.sbctlPath, cmdArgs...)
 	if MetricOvnCliLatency != nil {
 		MetricOvnCliLatency.WithLabelValues("ovn-sbctl").Observe(time.Since(start).Seconds())
 	}
@@ -516,7 +490,7 @@ func RunOVNSbctlWithTimeout(timeout int, args ...string) (string, string,
 
 // RunOVSDBClient runs an 'ovsdb-client [OPTIONS] COMMAND [ARG...] command'.
 func RunOVSDBClient(args ...string) (string, string, error) {
-	stdout, stderr, err := runOVNretry(runner.ovsdbClientPath, nil, args...)
+	stdout, stderr, err := run(runner.ovsdbClientPath, args...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -529,7 +503,7 @@ func RunOVSDBTool(args ...string) (string, string, error) {
 // RunOVSDBClientOVN runs an 'ovsdb-client [OPTIONS] COMMAND [SERVER] [ARG...] command' against OVN NB database.
 func RunOVSDBClientOVNNB(command string, args ...string) (string, string, error) {
 	cmdArgs := getNbOVSDBArgs(command, args...)
-	stdout, stderr, err := runOVNretry(runner.ovsdbClientPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.ovsdbClientPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -540,7 +514,7 @@ func RunOVNSbctl(args ...string) (string, string, error) {
 
 // RunOVNCtl runs an ovn-ctl command.
 func RunOVNCtl(args ...string) (string, string, error) {
-	stdout, stderr, err := runOVNretry(runner.ovnctlPath, nil, args...)
+	stdout, stderr, err := run(runner.ovnctlPath, args...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -552,7 +526,7 @@ func RunOVNNBAppCtl(args ...string) (string, string, error) {
 		runner.ovnRunDir + nbdbCtlSock,
 	}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.ovnappctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.ovnappctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -564,7 +538,7 @@ func RunOVNSBAppCtl(args ...string) (string, string, error) {
 		runner.ovnRunDir + sbdbCtlSock,
 	}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.ovnappctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.ovnappctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -583,7 +557,7 @@ func RunOVNNorthAppCtl(args ...string) (string, string, error) {
 		runner.ovnRunDir + fmt.Sprintf("ovn-northd.%s.ctl", strings.TrimSpace(string(pid))),
 	}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.ovnappctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.ovnappctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -599,7 +573,7 @@ func RunOVNControllerAppCtl(args ...string) (string, string, error) {
 		runner.ovnRunDir + fmt.Sprintf("ovn-controller.%s.ctl", strings.TrimSpace(string(pid))),
 	}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.ovnappctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.ovnappctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
@@ -615,7 +589,7 @@ func RunOvsVswitchdAppCtl(args ...string) (string, string, error) {
 		savedOVSRunDir + fmt.Sprintf("ovs-vswitchd.%s.ctl", strings.TrimSpace(string(pid))),
 	}
 	cmdArgs = append(cmdArgs, args...)
-	stdout, stderr, err := runOVNretry(runner.appctlPath, nil, cmdArgs...)
+	stdout, stderr, err := run(runner.appctlPath, cmdArgs...)
 	return strings.Trim(strings.TrimSpace(stdout.String()), "\""), stderr.String(), err
 }
 
