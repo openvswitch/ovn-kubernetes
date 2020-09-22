@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-func clearPodBandwidth(sandboxID string) error {
+func ClearPodBandwidth(sandboxID string) error {
 	// interfaces will have the same name as ports
 	portList, err := ovsFind("interface", "name", "external-ids:sandbox="+sandboxID)
 	if err != nil {
@@ -32,7 +32,7 @@ func clearPodBandwidth(sandboxID string) error {
 	return nil
 }
 
-func setPodBandwidth(sandboxID, ifname string, ingressBPS, egressBPS int64) error {
+func SetPodBandwidth(sandboxID, ifname string, ingressBPS, egressBPS int64) error {
 	// note pod ingress == OVS egress and vice versa
 
 	if ingressBPS > 0 {

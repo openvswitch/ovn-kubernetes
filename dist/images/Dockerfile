@@ -57,6 +57,7 @@ RUN mkdir -p /var/run/openvswitch
 RUN mkdir -p /usr/libexec/cni/
 COPY ovnkube ovn-kube-util /usr/bin/
 COPY ovn-k8s-cni-overlay /usr/libexec/cni/ovn-k8s-cni-overlay
+COPY ovn-k8s-cni-smart-nic /usr/libexec/cni/ovn-k8s-cni-smart-nic
 
 # ovnkube.sh is the entry point. This script examines environment
 # variables to direct operation and configure ovn

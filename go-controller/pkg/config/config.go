@@ -471,6 +471,10 @@ var CommonFlags = []cli.Flag{
 		Usage: "configuration file path (default: /etc/openvswitch/ovn_k8s.conf)",
 		//Value: "/etc/openvswitch/ovn_k8s.conf",
 	},
+	&cli.BoolFlag{
+		Name:  "smart-nic",
+		Usage: "Setup a smart nic node",
+	},
 	&cli.IntFlag{
 		Name:        "mtu",
 		Usage:       "MTU value used for the overlay networks (default: 1400)",

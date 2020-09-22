@@ -1,0 +1,62 @@
+---
+# ovnkube-smart-nic-cni
+# Setup the smart NIC CNI
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: ovnkube-smart-nic-cni
+  # namespace set up by install
+  namespace: ovn-kubernetes
+  annotations:
+    kubernetes.io/description: |
+      This DaemonSet adds ovn-k8s-cni-smart-nic to CNIs binary directory.
+spec:
+  selector:
+    matchLabels:
+      app: ovnkube-smart-nic-cni
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: ovnkube-smart-nic-cni
+        name: ovnkube-smart-nic-cni
+        component: network
+        type: infra
+        kubernetes.io/os: "linux"
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ''
+    spec:
+      hostNetwork: true
+      containers:
+      - name: ovnkube-smart-nic-cni
+        image: "{{ ovn_image | default('docker.io/ovnkube/ovn-daemonset:latest') }}"
+        imagePullPolicy: "{{ ovn_image_pull_policy | default('IfNotPresent') }}"
+        command: ["/root/ovnkube.sh", "smart-nic-cni"]
+        volumeMounts:
+        - mountPath: /opt/cni/bin
+          name: host-opt-cni-bin
+        - mountPath: /etc/cni/net.d
+          name: host-etc-cni-netd
+        resources:
+          requests:
+            cpu: 100m
+            memory: 300Mi
+       # Add later if needed
+       # lifecycle:
+       #   preStop:
+       #     exec:
+       #       command: ["/root/ovnkube.sh", "cleanup-smart-nic-cni"]
+       # readinessProbe:
+       #  exec:
+       #   command: ["/usr/bin/ovn-kube-util", "readiness-probe", "-t", "smart-nic-cni"]
+      nodeSelector:
+        nvidia.com/smart.nic: ""
+      serviceAccountName: ovn
+      volumes:
+      - name: host-opt-cni-bin
+        hostPath:
+          path: /opt/cni/bin
+      - name: host-etc-cni-netd
+        hostPath:
+          path: /etc/cni/net.d

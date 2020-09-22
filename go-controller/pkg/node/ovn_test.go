@@ -78,5 +78,5 @@ func (o *FakeOVNNode) init() {
 	o.watcher, err = factory.NewWatchFactory(o.fakeClient, o.fakeEgressIPClient, o.fakeEgressClient, o.fakeCRDClient)
 	Expect(err).NotTo(HaveOccurred())
 
-	o.node = NewNode(o.fakeClient, o.watcher, fakeNodeName, o.stopChan, o.recorder)
+	o.node = NewNode(o.fakeClient, o.watcher, fakeNodeName, o.stopChan, o.recorder, false)
 }

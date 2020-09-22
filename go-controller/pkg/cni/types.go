@@ -19,9 +19,10 @@ const serverSocketPath string = serverRunDir + "/" + serverSocketName
 type PodInterfaceInfo struct {
 	util.PodAnnotation
 
-	MTU     int   `json:"mtu"`
-	Ingress int64 `json:"ingress"`
-	Egress  int64 `json:"egress"`
+	MTU        int   `json:"mtu"`
+	Ingress    int64 `json:"ingress"`
+	Egress     int64 `json:"egress"`
+	IsSmartNic bool  `josn:"smartnic"`
 }
 
 // Explicit type for CNI commands the server handles

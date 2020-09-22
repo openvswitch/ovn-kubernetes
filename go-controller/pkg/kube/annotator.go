@@ -168,7 +168,7 @@ func (pa *podAnnotator) Run() error {
 		return nil
 	}
 
-	err := pa.kube.SetAnnotationsOnPod(pa.pod, annotations)
+	err := pa.kube.SetAnnotationsOnPod(pa.pod.Namespace, pa.pod.Name, annotations)
 	if err != nil {
 		// Let failure handlers clean up
 		for _, act := range pa.changes {

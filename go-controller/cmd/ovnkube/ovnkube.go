@@ -255,10 +255,12 @@ func runOvnKube(ctx *cli.Context) error {
 		if config.Kubernetes.Token == "" {
 			return fmt.Errorf("cannot initialize node without service account 'token'. Please provide one with --k8s-token argument")
 		}
+
+		smartNic := ctx.Bool("smart-nic")
 		// register ovnkube node specific prometheus metrics exported by the node
 		metrics.RegisterNodeMetrics()
 		start := time.Now()
-		n := ovnnode.NewNode(clientset, factory, node, stopChan, util.EventRecorder(clientset))
+		n := ovnnode.NewNode(clientset, factory, node, stopChan, util.EventRecorder(clientset), smartNic)
 		if err := n.Start(wg); err != nil {
 			return err
 		}

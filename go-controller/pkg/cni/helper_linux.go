@@ -198,41 +198,58 @@ func setupSriovInterface(netns ns.NetNS, containerID, ifName string, ifInfo *Pod
 	}
 	vfNetdevice := vfNetdevices[0]
 
-	// 2. get Uplink netdevice
-	uplink, err := sriovLibOps.GetUplinkRepresentor(pciAddrs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 3. get VF index from PCI
+	// 2. get VF index from PCI
 	vfIndex, err := sriovLibOps.GetVfIndexByPciAddress(pciAddrs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// 4. lookup representor
-	rep, err := sriovLibOps.GetVfRepresentor(uplink, vfIndex)
-	if err != nil {
-		return nil, nil, err
-	}
-	oldHostRepName := rep
+	if !ifInfo.IsSmartNic {
+		// 3. get Uplink netdevice
+		uplink, err := sriovLibOps.GetUplinkRepresentor(pciAddrs)
+		if err != nil {
+			return nil, nil, err
+		}
 
-	// 5. rename the host VF representor
-	hostIface.Name = containerID[:15]
-	if err = renameLink(oldHostRepName, hostIface.Name); err != nil {
-		return nil, nil, fmt.Errorf("failed to rename %s to %s: %v", oldHostRepName, hostIface.Name, err)
-	}
-	link, err := util.GetNetLinkOps().LinkByName(hostIface.Name)
-	if err != nil {
-		return nil, nil, err
-	}
-	hostIface.Mac = link.Attrs().HardwareAddr.String()
+		// 4. lookup representor
+		rep, err := sriovLibOps.GetVfRepresentor(uplink, vfIndex)
+		if err != nil {
+			return nil, nil, err
+		}
+		oldHostRepName := rep
 
-	// 6. set MTU on VF representor
-	if err = util.GetNetLinkOps().LinkSetMTU(link, ifInfo.MTU); err != nil {
-		return nil, nil, fmt.Errorf("failed to set MTU on %s: %v", hostIface.Name, err)
+		// 5. rename the host VF representor
+		hostIface.Name = containerID[:15]
+		if err = renameLink(oldHostRepName, hostIface.Name); err != nil {
+			return nil, nil, fmt.Errorf("failed to rename %s to %s: %v", oldHostRepName, hostIface.Name, err)
+		}
+		link, err := util.GetNetLinkOps().LinkByName(hostIface.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		hostIface.Mac = link.Attrs().HardwareAddr.String()
+
+		// 6. set MTU on VF representor
+		if err = util.GetNetLinkOps().LinkSetMTU(link, ifInfo.MTU); err != nil {
+			return nil, nil, fmt.Errorf("failed to set MTU on %s: %v", hostIface.Name, err)
+		}
 	}
 
+	//@TODO need to check why it failed on BF (it probeley need to be with TC)
+	/*
+		physlink, err := netlink.LinkByName(netdevice)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed getting link for %s: %v", netdevice, err)
+		}
+
+		// 7. Clean up any left over bandwidth configuration, before proceeding.
+		// Probably put this in a function that cleans up/resets other configs too.
+
+		err = netlink.LinkSetVfTxRate(physlink, vfIndex, 0)
+		if err != nil {
+			klog.Infof("Failed to clean up bandwidth on %s (%s/%d): %v", pciAddrs, physlink, vfIndex, err)
+		}
+	*/
 	// 7. Move VF to Container namespace
 	err = moveIfToNetns(vfNetdevice, netns)
 	if err != nil {
@@ -245,7 +262,7 @@ func setupSriovInterface(netns ns.NetNS, containerID, ifName string, ifInfo *Pod
 		if err != nil {
 			return err
 		}
-		link, err = util.GetNetLinkOps().LinkByName(contIface.Name)
+		link, err := util.GetNetLinkOps().LinkByName(contIface.Name)
 		if err != nil {
 			return err
 		}
@@ -315,6 +332,10 @@ func (pr *PodRequest) ConfigureInterface(namespace string, podName string, ifInf
 		ipStrs[i] = ip.String()
 	}
 
+	// For smart-nic case the rest of the flow has already handled on the smart-nic card
+	if ifInfo.IsSmartNic {
+		return []*current.Interface{hostIface, contIface}, nil
+	}
 	// Add the new sandbox's OVS port
 	ovsArgs := []string{
 		"add-port", "br-int", hostIface.Name, "--", "set",
@@ -329,7 +350,7 @@ func (pr *PodRequest) ConfigureInterface(namespace string, podName string, ifInf
 		return nil, fmt.Errorf("failure in plugging pod interface: %v\n  %q", err, out)
 	}
 
-	if err := clearPodBandwidth(pr.SandboxID); err != nil {
+	if err := ClearPodBandwidth(pr.SandboxID); err != nil {
 		return nil, err
 	}
 
@@ -343,7 +364,7 @@ func (pr *PodRequest) ConfigureInterface(namespace string, podName string, ifInf
 			return nil, fmt.Errorf("failed to set host veth txqlen: %v", err)
 		}
 
-		if err := setPodBandwidth(pr.SandboxID, hostIface.Name, ifInfo.Ingress, ifInfo.Egress); err != nil {
+		if err := SetPodBandwidth(pr.SandboxID, hostIface.Name, ifInfo.Ingress, ifInfo.Egress); err != nil {
 			return nil, err
 		}
 	}
@@ -418,7 +439,7 @@ func (pr *PodRequest) PlatformSpecificCleanup() error {
 		klog.Warningf("Failed to delete OVS port %s: %v\n  %q", ifaceName, err, string(out))
 	}
 
-	_ = clearPodBandwidth(pr.SandboxID)
+	_ = ClearPodBandwidth(pr.SandboxID)
 	pr.deletePodConntrack()
 
 	return nil

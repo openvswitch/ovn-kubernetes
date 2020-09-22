@@ -7,3 +7,4 @@ ovnkube-node.yaml
 ovnkube-monitor.yaml
 ovnkube-db-raft.yaml
 ovs-node.yaml
+ovnkube-smart-nic-cni.yaml

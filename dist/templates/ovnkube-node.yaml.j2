@@ -251,6 +251,13 @@ spec:
 
       nodeSelector:
         kubernetes.io/os: "linux"
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/smart.nic
+                operator: DoesNotExist
       volumes:
       - name: host-var-run-dbus
         hostPath:

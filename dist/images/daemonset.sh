@@ -287,6 +287,11 @@ ovn_image=${image} \
   ovn_unprivileged_mode=${ovn_unprivileged_mode} \
   j2 ../templates/ovs-node.yaml.j2 -o ../yaml/ovs-node.yaml
 
+# smart nic nic daemonset
+ovn_image=${image} \
+  ovn_image_pull_policy=${image_pull_policy} \
+  j2 ../templates/ovnkube-smart-nic-cni.yaml.j2 -o ../yaml/ovnkube-smart-nic-cni.yaml
+
 # ovn-setup.yaml
 net_cidr=${OVN_NET_CIDR:-"10.128.0.0/14/23"}
 svc_cidr=${OVN_SVC_CIDR:-"172.30.0.0/16"}

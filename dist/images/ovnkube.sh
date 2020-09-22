@@ -29,6 +29,7 @@ fi
 #    display        Displays log files
 #    display_env    Displays environment variables
 #    ovn_debug      Displays ovn/ovs configuration and flows
+#    smart-nic-cni  Add smart nic cni to host
 
 # NOTE: The script/image must be compatible with the daemonset.
 # This script supports version 3 daemonsets
@@ -180,6 +181,11 @@ ovn_remote_probe_interval=${OVN_REMOTE_PROBE_INTERVAL:-100000}
 ovn_multicast_enable=${OVN_MULTICAST_ENABLE:-}
 #OVN_EGRESSIP_ENABLE - enable egress IP for ovn-kubernetes
 ovn_egressip_enable=${OVN_EGRESSIP_ENABLE:-false}
+
+# SMART_NIC - is the worker node a smart nic card
+smart_nic=${SMART_NIC:-}
+# SMART_NIC_IP - IP on the smart nic which can reach the master ovndb to be used
+smart_nic_ip=${SMART_NIC_IP:-}
 
 # Determine the ovn rundir.
 if [[ -f /usr/bin/ovn-appctl ]]; then
@@ -631,6 +637,8 @@ nb-ovsdb() {
   trap 'ovsdb_cleanup nb' TERM
   check_ovn_daemonset_version "3"
   rm -f ${OVN_RUNDIR}/ovnnb_db.pid
+  # Clean old nb-ovndb
+  rm -f ${OVN_ETCDIR}/ovnnb_db.db
 
   if [[ ${ovn_db_host} == "" ]]; then
     echo "The IP address of the host $(hostname) could not be determined. Exiting..."
@@ -665,6 +673,8 @@ sb-ovsdb() {
   trap 'ovsdb_cleanup sb' TERM
   check_ovn_daemonset_version "3"
   rm -f ${OVN_RUNDIR}/ovnsb_db.pid
+  # Clean old sb-ovndb
+  rm -f ${OVN_ETCDIR}/ovnsb_db.db
 
   if [[ ${ovn_db_host} == "" ]]; then
     echo "The IP address of the host $(hostname) could not be determined. Exiting..."
@@ -901,6 +911,15 @@ ovn-node() {
   egressip_enabled_flag=
   if [[ ${ovn_egressip_enable} == "true" ]]; then
       egressip_enabled_flag="--enable-egress-ip"
+
+  smart_nic_flag=
+  if [[ ${smart_nic} == "true" ]]; then
+    if [[ ${smart_nic_ip} == "" ]]; then
+      echo "The IP address of the smart nic is needed. Exiting..."
+      exit 1
+    fi
+    smart_nic_flag="--smart-nic"
+    ovs-vsctl set Open_vSwitch . external_ids:ovn-encap-ip=${smart_nic_ip}
   fi
 
   OVN_ENCAP_IP=""
@@ -946,6 +965,8 @@ ovn-node() {
     --logfile-maxage=${ovnkube_logfile_maxage} \
     ${hybrid_overlay_flags} \
     ${disable_snat_multiple_gws_flag} \
+    ${smart_nic_flag} \
+    --k8s-cacert=${K8S_CACERT} \
     --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
     --pidfile ${OVN_RUNDIR}/ovnkube.pid \
     --logfile /var/log/ovn-kubernetes/ovnkube.log \
@@ -957,7 +978,9 @@ ovn-node() {
     --metrics-bind-address "0.0.0.0:9410" &
 
   wait_for_event attempts=3 process_ready ovnkube
-  setup_cni
+  if [[ ${smart_nic} != "true" ]]; then
+      setup_cni
+  fi
   echo "=============== ovn-node ========== running"
 
   process_healthy ovnkube
@@ -1033,6 +1056,42 @@ ovs-metrics() {
   exit 1
 }
 
+# Add smart nic cni to host
+smart-nic-cni() {
+  TLS_CFG="certificate-authority-data: $(cat $K8S_CACERT | base64 | tr -d '\n')"
+  SMART_NIC_KUBECONFIG_DIR=/etc/cni/net.d/smart_nic.d
+  SMART_NIC_KUBECONFIG=$SMART_NIC_KUBECONFIG_DIR/smart_nic.kubeconfig
+
+  mkdir -p $SMART_NIC_KUBECONFIG_DIR
+
+    cat > $SMART_NIC_KUBECONFIG <<EOF
+# Kubeconfig file for Smart NIC CNI plugin.
+apiVersion: v1
+kind: Config
+clusters:
+- name: local
+  cluster:
+    server: ${KUBERNETES_SERVICE_PROTOCOL:-https}://[${KUBERNETES_SERVICE_HOST}]:${KUBERNETES_SERVICE_PORT}
+    $TLS_CFG
+users:
+- name: smat-nic-cni
+  user:
+    token: "${k8s_token}"
+contexts:
+- name: smat-nic-cni-context
+  context:
+    cluster: local
+    user: smat-nic-cni
+current-context: smat-nic-cni-context
+EOF
+
+  echo "=============== smart-nic-cni"
+  cp -f /usr/libexec/cni/ovn-k8s-cni-smart-nic /opt/cni/bin/ovn-k8s-cni-smart-nic
+  echo "{\"cniVersion\":\"0.4.0\",\"name\":\"ovn-kubernetes\",\"type\":\"ovn-k8s-cni-smart-nic\", \"kubeconfig\":\"$SMART_NIC_KUBECONFIG\", \"ipam\":{},\"dns\":{}}" > \
+    /etc/cni/net.d/10-ovn-k8s-cni-smart-nic.conf
+  sleep infinity
+}
+
 echo "================== ovnkube.sh --- version: ${ovnkube_version} ================"
 
 echo " ==================== command: ${cmd}"
@@ -1106,6 +1165,9 @@ case ${cmd} in
   ;;
 "ovs-metrics")
   ovs-metrics
+  ;;
+"smart-nic-cni")
+  smart-nic-cni
   ;;
 *)
   echo "invalid command ${cmd}"

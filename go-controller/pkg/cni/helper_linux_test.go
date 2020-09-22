@@ -583,6 +583,7 @@ func TestSetupSriovInterface(t *testing.T) {
 			errExp:      true,
 			sriovOpsMockHelper: []ovntest.TestifyMockHelper{
 				{"GetNetDevicesFromPci", []string{"string"}, []interface{}{[]string{"en01"}, nil}},
+				{"GetVfIndexByPciAddress", []string{"string"}, []interface{}{0, nil}},
 				{"GetUplinkRepresentor", []string{"string"}, []interface{}{"", fmt.Errorf("mock error")}},
 			},
 		},
@@ -599,7 +600,6 @@ func TestSetupSriovInterface(t *testing.T) {
 			errExp:      true,
 			sriovOpsMockHelper: []ovntest.TestifyMockHelper{
 				{"GetNetDevicesFromPci", []string{"string"}, []interface{}{[]string{"en01"}, nil}},
-				{"GetUplinkRepresentor", []string{"string"}, []interface{}{"testlinkrepresentor", nil}},
 				{"GetVfIndexByPciAddress", []string{"string"}, []interface{}{-1, fmt.Errorf("mock error")}},
 			},
 		},

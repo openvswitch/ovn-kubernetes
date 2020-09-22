@@ -23,6 +23,8 @@ type NetConf struct {
 	// LogFileMaxAge represents the maximum number
 	// of days to retain old log files
 	LogFileMaxAge int `json:"logfile-maxage"`
+	// Kubeconfig path to kubeconfig file when using smart-nic cni
+	Kubeconfig string `json:"kubeconfig"`
 }
 
 // NetworkSelectionElement represents one element of the JSON format

@@ -4,15 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog"
 
 	"github.com/containernetworking/cni/pkg/types/current"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/wait"
 	utilnet "k8s.io/utils/net"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
@@ -33,7 +30,7 @@ func validateBandwidthIsReasonable(rsrc *resource.Quantity) error {
 	return nil
 }
 
-func extractPodBandwidthResources(podAnnotations map[string]string) (int64, int64, error) {
+func ExtractPodBandwidthResources(podAnnotations map[string]string) (int64, int64, error) {
 	ingress := int64(-1)
 	egress := int64(-1)
 	str, found := podAnnotations["kubernetes.io/ingress-bandwidth"]
@@ -74,26 +71,8 @@ func (pr *PodRequest) cmdAdd(kclient kubernetes.Interface) ([]byte, error) {
 
 	kubecli := &kube.Kube{KClient: kclient}
 
-	// Get the IP address and MAC address from the API server.
-	// Exponential back off ~32 seconds + 7* t(api call)
-	var annotationBackoff = wait.Backoff{Duration: 1 * time.Second, Steps: 7, Factor: 1.5, Jitter: 0.1}
-	var annotations map[string]string
-	var err error
-	if err = wait.ExponentialBackoff(annotationBackoff, func() (bool, error) {
-		annotations, err = kubecli.GetAnnotationsOnPod(namespace, podName)
-		if err != nil {
-			if errors.IsNotFound(err) {
-				// Pod not found; don't bother waiting longer
-				return false, err
-			}
-			klog.Warningf("Error getting pod annotations: %v", err)
-			return false, nil
-		}
-		if _, ok := annotations[util.OvnPodAnnotationName]; ok {
-			return true, nil
-		}
-		return false, nil
-	}); err != nil {
+	annotations, err := GetPodAnnotations(kubecli, namespace, podName, false)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get pod annotation: %v", err)
 	}
 
@@ -102,7 +81,7 @@ func (pr *PodRequest) cmdAdd(kclient kubernetes.Interface) ([]byte, error) {
 		return nil, fmt.Errorf("failed to unmarshal ovn annotation: %v", err)
 	}
 
-	ingress, egress, err := extractPodBandwidthResources(annotations)
+	ingress, egress, err := ExtractPodBandwidthResources(annotations)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse bandwidth request: %v", err)
 	}
