@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 )
@@ -103,7 +104,8 @@ func TestMarshalPodAnnotation(t *testing.T) {
 
 	for i, tc := range tests {
 		t.Run(fmt.Sprintf("%d:%s", i, tc.desc), func(t *testing.T) {
-			res, e := MarshalPodAnnotation(&tc.inpPodAnnot)
+			res := map[string]string{}
+			e := MarshalPodAnnotation(&res, &tc.inpPodAnnot, types.DefaultNetworkName)
 			t.Log(res, e)
 			if tc.errAssert {
 				assert.Error(t, e)
@@ -198,7 +200,7 @@ func TestUnmarshalPodAnnotation(t *testing.T) {
 	}
 	for i, tc := range tests {
 		t.Run(fmt.Sprintf("%d:%s", i, tc.desc), func(t *testing.T) {
-			res, e := UnmarshalPodAnnotation(tc.inpAnnotMap)
+			res, e := UnmarshalPodAnnotation(tc.inpAnnotMap, types.DefaultNetworkName)
 			t.Log(res, e)
 			if tc.errAssert {
 				assert.Error(t, e)

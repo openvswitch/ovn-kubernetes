@@ -197,7 +197,7 @@ func (oc *Controller) deleteEgressFirewall(egressFirewall *egressfirewallapi.Egr
 
 func (oc *Controller) updateEgressFirewallWithRetry(egressfirewall *egressfirewallapi.EgressFirewall) error {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return oc.kube.UpdateEgressFirewall(egressfirewall)
+		return oc.mc.kube.UpdateEgressFirewall(egressfirewall)
 	})
 	if retryErr != nil {
 		return fmt.Errorf("error in updating status on EgressFirewall %s/%s: %v",

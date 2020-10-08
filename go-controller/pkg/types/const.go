@@ -1,7 +1,8 @@
 package types
 
 const (
-	K8sPrefix = "k8s-"
+	DefaultNetworkName = "default"
+	K8sPrefix          = "k8s-"
 	// K8sMgmtIntfName name to be used as an OVS internal port on the node
 	K8sMgmtIntfName = "ovn-k8s-mp0"
 

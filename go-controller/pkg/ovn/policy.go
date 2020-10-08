@@ -395,12 +395,12 @@ func (oc *Controller) createMulticastAllowPolicy(ns string, nsInfo *namespaceInf
 	}
 
 	// Add all ports from this namespace to the multicast allow group.
-	pods, err := oc.watchFactory.GetPods(ns)
+	pods, err := oc.mc.watchFactory.GetPods(ns)
 	if err != nil {
 		klog.Warningf("Failed to get pods for namespace %q: %v", ns, err)
 	}
 	for _, pod := range pods {
-		portName := podLogicalPortName(pod)
+		portName := podLogicalPortName(pod, oc.netconf.Name)
 		if portInfo, err := oc.logicalPortCache.get(portName); err != nil {
 			klog.Errorf(err.Error())
 		} else if err := podAddAllowMulticastPolicy(ns, portInfo); err != nil {
@@ -589,7 +589,7 @@ func (oc *Controller) handleLocalPodSelectorAddFunc(
 	}
 
 	// Get the logical port info
-	logicalPort := podLogicalPortName(pod)
+	logicalPort := podLogicalPortName(pod, oc.netconf.Name)
 	portInfo, err := oc.logicalPortCache.get(logicalPort)
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -634,7 +634,7 @@ func (oc *Controller) handleLocalPodSelectorDelFunc(
 	}
 
 	// Get the logical port info
-	logicalPort := podLogicalPortName(pod)
+	logicalPort := podLogicalPortName(pod, oc.netconf.Name)
 	portInfo, err := oc.logicalPortCache.get(logicalPort)
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -677,7 +677,7 @@ func (oc *Controller) handleLocalPodSelector(
 	// NetworkPolicy is validated by the apiserver; this can't fail.
 	sel, _ := metav1.LabelSelectorAsSelector(&policy.Spec.PodSelector)
 
-	h := oc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
+	h := oc.mc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				oc.handleLocalPodSelectorAddFunc(policy, np, nsInfo, obj)
@@ -969,7 +969,7 @@ func (oc *Controller) handlePeerServiceDelete(gp *gressPolicy, obj interface{}) 
 func (oc *Controller) handlePeerService(
 	policy *knet.NetworkPolicy, gp *gressPolicy, np *networkPolicy) {
 
-	h := oc.watchFactory.AddFilteredServiceHandler(policy.Namespace,
+	h := oc.mc.watchFactory.AddFilteredServiceHandler(policy.Namespace,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				// Service is matched so add VIP to addressSet
@@ -1007,7 +1007,7 @@ func (oc *Controller) handlePeerPodSelector(
 	// NetworkPolicy is validated by the apiserver; this can't fail.
 	sel, _ := metav1.LabelSelectorAsSelector(podSelector)
 
-	h := oc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
+	h := oc.mc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				oc.handlePeerPodSelectorAddUpdate(gp, obj)
@@ -1033,7 +1033,7 @@ func (oc *Controller) handlePeerNamespaceAndPodSelector(
 	nsSel, _ := metav1.LabelSelectorAsSelector(namespaceSelector)
 	podSel, _ := metav1.LabelSelectorAsSelector(podSelector)
 
-	namespaceHandler := oc.watchFactory.AddFilteredNamespaceHandler("", nsSel,
+	namespaceHandler := oc.mc.watchFactory.AddFilteredNamespaceHandler("", nsSel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				namespace := obj.(*kapi.Namespace)
@@ -1046,7 +1046,7 @@ func (oc *Controller) handlePeerNamespaceAndPodSelector(
 
 				// The AddFilteredPodHandler call might call handlePeerPodSelectorAddUpdate
 				// on existing pods so we can't be holding the lock at this point
-				podHandler := oc.watchFactory.AddFilteredPodHandler(namespace.Name, podSel,
+				podHandler := oc.mc.watchFactory.AddFilteredPodHandler(namespace.Name, podSel,
 					cache.ResourceEventHandlerFuncs{
 						AddFunc: func(obj interface{}) {
 							oc.handlePeerPodSelectorAddUpdate(gp, obj)
@@ -1061,7 +1061,7 @@ func (oc *Controller) handlePeerNamespaceAndPodSelector(
 				np.Lock()
 				defer np.Unlock()
 				if np.deleted {
-					oc.watchFactory.RemovePodHandler(podHandler)
+					oc.mc.watchFactory.RemovePodHandler(podHandler)
 					return
 				}
 				np.podHandlerList = append(np.podHandlerList, podHandler)
@@ -1070,7 +1070,7 @@ func (oc *Controller) handlePeerNamespaceAndPodSelector(
 				// when the namespace labels no longer apply
 				// remove the namespaces pods from the address_set
 				namespace := obj.(*kapi.Namespace)
-				pods, _ := oc.watchFactory.GetPods(namespace.Name)
+				pods, _ := oc.mc.watchFactory.GetPods(namespace.Name)
 
 				for _, pod := range pods {
 					oc.handlePeerPodSelectorDelete(gp, pod)
@@ -1091,7 +1091,7 @@ func (oc *Controller) handlePeerNamespaceSelector(
 	// NetworkPolicy is validated by the apiserver; this can't fail.
 	sel, _ := metav1.LabelSelectorAsSelector(namespaceSelector)
 
-	h := oc.watchFactory.AddFilteredNamespaceHandler("", sel,
+	h := oc.mc.watchFactory.AddFilteredNamespaceHandler("", sel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				namespace := obj.(*kapi.Namespace)
@@ -1117,12 +1117,12 @@ func (oc *Controller) handlePeerNamespaceSelector(
 
 func (oc *Controller) shutdownHandlers(np *networkPolicy) {
 	for _, handler := range np.podHandlerList {
-		oc.watchFactory.RemovePodHandler(handler)
+		oc.mc.watchFactory.RemovePodHandler(handler)
 	}
 	for _, handler := range np.nsHandlerList {
-		oc.watchFactory.RemoveNamespaceHandler(handler)
+		oc.mc.watchFactory.RemoveNamespaceHandler(handler)
 	}
 	for _, handler := range np.svcHandlerList {
-		oc.watchFactory.RemoveServiceHandler(handler)
+		oc.mc.watchFactory.RemoveServiceHandler(handler)
 	}
 }

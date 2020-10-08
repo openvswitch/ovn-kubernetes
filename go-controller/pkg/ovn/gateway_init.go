@@ -610,7 +610,7 @@ func (oc *Controller) addNodeLocalNatEntries(node *kapi.Node, mgmtPortMAC string
 		return fmt.Errorf("failed to marshal node %q annotation for node local NAT IP %s",
 			node.Name, externalIP.String())
 	}
-	err = oc.kube.SetAnnotationsOnNode(node, nodeAnnotations)
+	err = oc.mc.kube.SetAnnotationsOnNode(node, nodeAnnotations)
 	if err != nil {
 		return fmt.Errorf("failed to set node local NAT IP annotation on node %s: %v",
 			node.Name, err)

@@ -16,11 +16,11 @@ type portCache struct {
 }
 
 type lpInfo struct {
-	name          string
-	uuid          string
-	logicalSwitch string
-	ips           []*net.IPNet
-	mac           net.HardwareAddr
+	name     string
+	uuid     string
+	nodeName string
+	ips      []*net.IPNet
+	mac      net.HardwareAddr
 	// expires, if non-nil, indicates that this object is scheduled to be
 	// removed at the given time
 	expires time.Time
@@ -42,15 +42,15 @@ func (c *portCache) get(logicalPort string) (*lpInfo, error) {
 	return nil, fmt.Errorf("logical port %s not found in cache", logicalPort)
 }
 
-func (c *portCache) add(logicalSwitch, logicalPort, uuid string, mac net.HardwareAddr, ips []*net.IPNet) *lpInfo {
+func (c *portCache) add(nodeName, logicalPort, uuid string, mac net.HardwareAddr, ips []*net.IPNet) *lpInfo {
 	c.Lock()
 	defer c.Unlock()
 	portInfo := &lpInfo{
-		logicalSwitch: logicalSwitch,
-		name:          logicalPort,
-		uuid:          uuid,
-		ips:           ips,
-		mac:           mac,
+		nodeName: nodeName,
+		name:     logicalPort,
+		uuid:     uuid,
+		ips:      ips,
+		mac:      mac,
 	}
 	klog.V(5).Infof("port-cache(%s): added port %+v", logicalPort, portInfo)
 	c.cache[logicalPort] = portInfo

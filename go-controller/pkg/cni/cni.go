@@ -15,6 +15,7 @@ import (
 	utilnet "k8s.io/utils/net"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 )
 
@@ -69,6 +70,14 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister) ([]byte, error) 
 	if namespace == "" || podName == "" {
 		return nil, fmt.Errorf("required CNI variable missing")
 	}
+	netName := types.DefaultNetworkName
+	mtu := config.Default.MTU
+	if pr.CNIConf.NotDefault {
+		netName = pr.CNIConf.Name
+		if pr.CNIConf.MTU != 0 {
+			mtu = pr.CNIConf.MTU
+		}
+	}
 
 	// Get the IP address and MAC address of the pod
 	annotations, err := getPodAnnotations(pr.ctx, podLister, pr.PodNamespace, pr.PodName)
@@ -76,20 +85,21 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister) ([]byte, error) 
 		return nil, err
 	}
 
-	podInfo, err := util.UnmarshalPodAnnotation(annotations)
+	podInfo, err := util.UnmarshalPodAnnotation(annotations, netName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ovn annotation: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal ovn annotation for network %s: %v", netName, err)
 	}
 
 	ingress, egress, err := extractPodBandwidthResources(annotations)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse bandwidth request: %v", err)
+		return nil, fmt.Errorf("failed to parse bandwidth request for network %s: %v", netName, err)
 	}
 	podInterfaceInfo := &PodInterfaceInfo{
 		PodAnnotation: *podInfo,
-		MTU:           config.Default.MTU,
+		MTU:           mtu,
 		Ingress:       ingress,
 		Egress:        egress,
+		NetworkName:   netName,
 	}
 	response := &Response{}
 	if !config.UnprivilegedMode {
@@ -103,7 +113,7 @@ func (pr *PodRequest) cmdAdd(podLister corev1listers.PodLister) ([]byte, error) 
 
 	responseBytes, err := json.Marshal(response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal pod request response: %v", err)
+		return nil, fmt.Errorf("failed to marshal pod request response for network %s: %v", netName, err)
 	}
 
 	return responseBytes, nil

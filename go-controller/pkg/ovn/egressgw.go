@@ -97,7 +97,7 @@ func (oc *Controller) addExternalGWsForNamespace(gateways []net.IP, nsInfo *name
 // addGWRoutesForNamespace handles adding routes for all existing pods in namespace
 // This should only be called with a lock on nsInfo
 func (oc *Controller) addGWRoutesForNamespace(namespace string, gws []net.IP, nsInfo *namespaceInfo) error {
-	existingPods, err := oc.watchFactory.GetPods(namespace)
+	existingPods, err := oc.mc.watchFactory.GetPods(namespace)
 	if err != nil {
 		return fmt.Errorf("failed to get all the pods (%v)", err)
 	}
@@ -317,7 +317,7 @@ func (oc *Controller) deletePerPodGRSNAT(node string, podIPNets []*net.IPNet) {
 
 func (oc *Controller) addPerPodGRSNAT(pod *kapi.Pod, podIfAddrs []*net.IPNet) error {
 	nodeName := pod.Spec.NodeName
-	node, err := oc.watchFactory.GetNode(nodeName)
+	node, err := oc.mc.watchFactory.GetNode(nodeName)
 	if err != nil {
 		return fmt.Errorf("failed to get node %s: %v", nodeName, err)
 	}

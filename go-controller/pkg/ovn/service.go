@@ -67,7 +67,7 @@ func (ovn *Controller) syncServices(services []interface{}) {
 
 		// detect if service has endpoints for stale reject ACL check. If there are endpoints, we need to wipe any
 		// old stale ACLs
-		ep, err := ovn.watchFactory.GetEndpoint(service.Namespace, service.Name)
+		ep, err := ovn.mc.watchFactory.GetEndpoint(service.Namespace, service.Name)
 		hasEndpoints := false
 		if err == nil {
 			if len(ep.Subsets) > 0 {
@@ -290,7 +290,7 @@ func (ovn *Controller) createService(service *kapi.Service) error {
 	// eventough the endpoint exists.
 	// NOTE: we can also end up in a situation where a service matching no pods is created. Such a service still has an endpoint, but with no subsets.
 	// make sure to treat that service as an ACL reject.
-	ep, err := ovn.watchFactory.GetEndpoint(service.Namespace, service.Name)
+	ep, err := ovn.mc.watchFactory.GetEndpoint(service.Namespace, service.Name)
 	if err == nil {
 		if len(ep.Subsets) > 0 {
 			klog.V(5).Infof("service: %s has endpoint, will create load balancer VIPs", service.Name)
@@ -318,7 +318,7 @@ func (ovn *Controller) createService(service *kapi.Service) error {
 			if err != nil {
 				klog.Errorf("Could not get reference for pod %v: %v\n", service.Name, err)
 			} else {
-				ovn.recorder.Event(ref, kapi.EventTypeWarning, "Unsupported protocol error", "SCTP protocol is unsupported by this version of OVN")
+				ovn.mc.recorder.Event(ref, kapi.EventTypeWarning, "Unsupported protocol error", "SCTP protocol is unsupported by this version of OVN")
 			}
 			return fmt.Errorf("invalid service port %s: SCTP is unsupported by this version of OVN", svcPort.Name)
 		}
