@@ -150,7 +150,7 @@ func TestGetOVSPortMACAddress(t *testing.T) {
 	// below is defined in ovs.go
 	runCmdExecRunner = mockExecRunner
 	// note runner is defined in ovs.go file
-	runner = &execHelper{exec: mockKexecIface}
+	runner := &execHelper{exec: mockKexecIface}
 
 	tests := []struct {
 		desc                    string
@@ -200,7 +200,7 @@ func TestGetOVSPortMACAddress(t *testing.T) {
 			}
 			ifaceCall.Once()
 
-			res, err := GetOVSPortMACAddress(tc.input)
+			res, err := GetOVSPortMACAddress(runner, tc.input)
 			t.Log(res, err)
 			if tc.errExpected {
 				assert.Error(t, err)

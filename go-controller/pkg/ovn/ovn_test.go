@@ -36,6 +36,7 @@ type FakeOVN struct {
 	controller         *Controller
 	stopChan           chan struct{}
 	fakeExec           *ovntest.FakeExec
+	exec               util.ExecHelper
 	asf                *fakeAddressSetFactory
 	fakeRecorder       *record.FakeRecorder
 	ovnNBClient        goovn.Client
@@ -43,10 +44,12 @@ type FakeOVN struct {
 }
 
 func NewFakeOVN(fexec *ovntest.FakeExec) *FakeOVN {
-	err := util.SetExec(fexec)
+	exec, err := util.NewExecHelper(fexec)
 	Expect(err).NotTo(HaveOccurred())
+
 	return &FakeOVN{
 		fakeExec:     fexec,
+		exec:         exec,
 		asf:          newFakeAddressSetFactory(),
 		fakeRecorder: record.NewFakeRecorder(10),
 	}
@@ -99,7 +102,7 @@ func (o *FakeOVN) init() {
 	Expect(err).NotTo(HaveOccurred())
 	o.ovnNBClient = ovntest.NewMockOVNClient(goovn.DBNB)
 	o.ovnSBClient = ovntest.NewMockOVNClient(goovn.DBSB)
-	o.controller = NewOvnController(o.fakeClient, o.fakeEgressIPClient, o.fakeEgressClient, o.watcher,
+	o.controller = NewOvnController(o.fakeClient, o.exec, o.fakeEgressIPClient, o.fakeEgressClient, o.watcher,
 		o.stopChan, o.asf, o.ovnNBClient,
 		o.ovnSBClient, o.fakeRecorder)
 	o.controller.multicastSupport = true

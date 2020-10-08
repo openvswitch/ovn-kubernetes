@@ -179,13 +179,14 @@ func runOvnKube(ctx *cli.Context) error {
 		}
 	}
 
-	exec := kexec.New()
-	configFile, err := config.InitConfig(ctx, exec, nil)
+	baseExec := kexec.New()
+	configFile, err := config.InitConfig(ctx, baseExec, nil)
 	if err != nil {
 		return err
 	}
 
-	if err = util.SetExec(exec); err != nil {
+	exec, err := util.NewExecHelper(baseExec)
+	if err != nil {
 		return fmt.Errorf("failed to initialize exec helper: %v", err)
 	}
 
@@ -209,7 +210,7 @@ func runOvnKube(ctx *cli.Context) error {
 			return fmt.Errorf("cannot specify cleanup-node together with 'init-node or 'init-master'")
 		}
 
-		if err = ovnnode.CleanupClusterNode(cleanupNode); err != nil {
+		if err = ovnnode.CleanupClusterNode(exec, cleanupNode); err != nil {
 			return err
 		}
 		return nil
@@ -243,9 +244,9 @@ func runOvnKube(ctx *cli.Context) error {
 		// register prometheus metrics exported by the master
 		// this must be done prior to calling controller start
 		// since we capture some metrics in Start()
-		metrics.RegisterMasterMetrics(ovnNBClient, ovnSBClient)
+		metrics.RegisterMasterMetrics(exec, ovnNBClient, ovnSBClient)
 
-		ovnController := ovn.NewOvnController(clientset, egressIPClientset, egressFirewallClientset, factory, stopChan, nil, ovnNBClient, ovnSBClient, util.EventRecorder(clientset))
+		ovnController := ovn.NewOvnController(clientset, exec, egressIPClientset, egressFirewallClientset, factory, stopChan, nil, ovnNBClient, ovnSBClient, util.EventRecorder(clientset))
 		if err := ovnController.Start(clientset, master, wg); err != nil {
 			return err
 		}
@@ -258,7 +259,7 @@ func runOvnKube(ctx *cli.Context) error {
 		// register ovnkube node specific prometheus metrics exported by the node
 		metrics.RegisterNodeMetrics()
 		start := time.Now()
-		n := ovnnode.NewNode(clientset, factory, node, stopChan, util.EventRecorder(clientset))
+		n := ovnnode.NewNode(clientset, exec, factory, node, stopChan, util.EventRecorder(clientset))
 		if err := n.Start(wg); err != nil {
 			return err
 		}
@@ -274,7 +275,7 @@ func runOvnKube(ctx *cli.Context) error {
 
 	// start the prometheus server to serve OVN Metrics (default port: 9476)
 	if config.Kubernetes.OVNMetricsBindAddress != "" {
-		metrics.RegisterOvnMetrics(clientset, node)
+		metrics.RegisterOvnMetrics(exec, clientset, node)
 		metrics.StartOVNMetricsServer(config.Kubernetes.OVNMetricsBindAddress)
 	}
 

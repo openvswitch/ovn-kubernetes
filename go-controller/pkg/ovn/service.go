@@ -137,7 +137,7 @@ func (ovn *Controller) syncServices(services []interface{}) {
 	type ovnACLData struct {
 		Data [][]interface{}
 	}
-	data, stderr, err := util.RunOVNNbctl("--columns=name,_uuid", "--format=json", "find", "acl", "action=reject")
+	data, stderr, err := ovn.exec.RunOVNNbctl("--columns=name,_uuid", "--format=json", "find", "acl", "action=reject")
 	if err != nil {
 		klog.Errorf("Error while querying ACLs with reject action: %s, %v", stderr, err)
 	} else {

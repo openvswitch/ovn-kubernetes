@@ -196,12 +196,12 @@ func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 		}
 	}
 
-	if _, _, err := util.RunOVNNbctl("--columns=_uuid", "list", "port_group"); err != nil {
+	if _, _, err := oc.exec.RunOVNNbctl("--columns=_uuid", "list", "port_group"); err != nil {
 		klog.Fatal("OVN version too old; does not support port groups")
 	}
 
 	if oc.multicastSupport {
-		if _, _, err := util.RunOVNSbctl("--columns=_uuid", "list", "IGMP_Group"); err != nil {
+		if _, _, err := oc.exec.RunOVNSbctl("--columns=_uuid", "list", "IGMP_Group"); err != nil {
 			klog.Warningf("Multicast support enabled, however version of OVN in use does not support IGMP Group. " +
 				"Disabling Multicast Support")
 			oc.multicastSupport = false
@@ -221,6 +221,7 @@ func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 		factory := oc.watchFactory.GetFactory()
 		oc.hoMaster, err = hocontroller.NewMaster(
 			oc.kube,
+			oc.exec,
 			factory.Core().V1().Nodes().Informer(),
 			factory.Core().V1().Namespaces().Informer(),
 			factory.Core().V1().Pods().Informer(),
@@ -239,7 +240,7 @@ func (oc *Controller) StartClusterMaster(masterNodeName string) error {
 // SetupMaster creates the central router and load-balancers for the network
 func (oc *Controller) SetupMaster(masterNodeName string) error {
 	// Create a single common distributed router for the cluster.
-	stdout, stderr, err := util.RunOVNNbctl("--", "--may-exist", "lr-add", ovnClusterRouter,
+	stdout, stderr, err := oc.exec.RunOVNNbctl("--", "--may-exist", "lr-add", ovnClusterRouter,
 		"--", "set", "logical_router", ovnClusterRouter, "external_ids:k8s-cluster-router=yes")
 	if err != nil {
 		klog.Errorf("Failed to create a single common distributed router for the cluster, "+
@@ -247,12 +248,12 @@ func (oc *Controller) SetupMaster(masterNodeName string) error {
 		return err
 	}
 
-	if err := addDistributedGWPort(); err != nil {
+	if err := addDistributedGWPort(oc.exec); err != nil {
 		return err
 	}
 
 	// Determine SCTP support
-	oc.SCTPSupport, err = util.DetectSCTPSupport()
+	oc.SCTPSupport, err = util.DetectSCTPSupport(oc.exec)
 	if err != nil {
 		return err
 	}
@@ -265,7 +266,7 @@ func (oc *Controller) SetupMaster(masterNodeName string) error {
 	// If supported, enable IGMP relay on the router to forward multicast
 	// traffic between nodes.
 	if oc.multicastSupport {
-		stdout, stderr, err = util.RunOVNNbctl("--", "set", "logical_router",
+		stdout, stderr, err = oc.exec.RunOVNNbctl("--", "set", "logical_router",
 			ovnClusterRouter, "options:mcast_relay=\"true\"")
 		if err != nil {
 			klog.Errorf("Failed to enable IGMP relay on the cluster router, "+
@@ -275,7 +276,7 @@ func (oc *Controller) SetupMaster(masterNodeName string) error {
 
 		// Drop IP multicast globally. Multicast is allowed only if explicitly
 		// enabled in a namespace.
-		err = createDefaultDenyMulticastPolicy()
+		err = oc.createDefaultDenyMulticastPolicy()
 		if err != nil {
 			klog.Errorf("Failed to create default deny multicast policy, error: %v",
 				err)
@@ -284,40 +285,40 @@ func (oc *Controller) SetupMaster(masterNodeName string) error {
 	}
 
 	// Create 3 load-balancers for east-west traffic for UDP, TCP, SCTP
-	oc.TCPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-tcp=yes")
+	oc.TCPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-tcp=yes")
 	if err != nil {
 		klog.Errorf("Failed to get tcp load balancer, stderr: %q, error: %v", stderr, err)
 		return err
 	}
 
 	if oc.TCPLoadBalancerUUID == "" {
-		oc.TCPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-tcp=yes", "protocol=tcp")
+		oc.TCPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-tcp=yes", "protocol=tcp")
 		if err != nil {
 			klog.Errorf("Failed to create tcp load balancer, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 			return err
 		}
 	}
 
-	oc.UDPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-udp=yes")
+	oc.UDPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-udp=yes")
 	if err != nil {
 		klog.Errorf("Failed to get udp load balancer, stderr: %q, error: %v", stderr, err)
 		return err
 	}
 	if oc.UDPLoadBalancerUUID == "" {
-		oc.UDPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-udp=yes", "protocol=udp")
+		oc.UDPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-udp=yes", "protocol=udp")
 		if err != nil {
 			klog.Errorf("Failed to create udp load balancer, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 			return err
 		}
 	}
 
-	oc.SCTPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-sctp=yes")
+	oc.SCTPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "load_balancer", "external_ids:k8s-cluster-lb-sctp=yes")
 	if err != nil {
 		klog.Errorf("Failed to get sctp load balancer, stderr: %q, error: %v", stderr, err)
 		return err
 	}
 	if oc.SCTPLoadBalancerUUID == "" && oc.SCTPSupport {
-		oc.SCTPLoadBalancerUUID, stderr, err = util.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-sctp=yes", "protocol=sctp")
+		oc.SCTPLoadBalancerUUID, stderr, err = oc.exec.RunOVNNbctl("--", "create", "load_balancer", "external_ids:k8s-cluster-lb-sctp=yes", "protocol=sctp")
 		if err != nil {
 			klog.Errorf("Failed to create sctp load balancer, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 			return err
@@ -399,7 +400,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 		mgmtIfAddr := util.GetNodeManagementIfAddr(hostSubnet)
 		addresses += " " + mgmtIfAddr.IP.String()
 
-		if err := addAllowACLFromNode(node.Name, mgmtIfAddr.IP); err != nil {
+		if err := oc.addAllowACLFromNode(node.Name, mgmtIfAddr.IP); err != nil {
 			return err
 		}
 
@@ -408,7 +409,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 		}
 
 		if config.Gateway.Mode == config.GatewayModeLocal {
-			stdout, stderr, err := util.RunOVNNbctl("--may-exist",
+			stdout, stderr, err := oc.exec.RunOVNNbctl("--may-exist",
 				"--policy=src-ip", "lr-route-add", ovnClusterRouter,
 				hostSubnet.String(), mgmtIfAddr.IP.String())
 			if err != nil {
@@ -420,7 +421,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 	}
 
 	// Create this node's management logical port on the node switch
-	stdout, stderr, err := util.RunOVNNbctl(
+	stdout, stderr, err := oc.exec.RunOVNNbctl(
 		"--", "--may-exist", "lsp-add", node.Name, util.K8sPrefix+node.Name,
 		"--", "lsp-set-addresses", util.K8sPrefix+node.Name, addresses)
 	if err != nil {
@@ -429,7 +430,7 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 	}
 
 	if v4Subnet != nil {
-		if err := util.UpdateNodeSwitchExcludeIPs(node.Name, v4Subnet); err != nil {
+		if err := util.UpdateNodeSwitchExcludeIPs(oc.exec, node.Name, v4Subnet); err != nil {
 			return err
 		}
 	}
@@ -451,7 +452,7 @@ func (oc *Controller) syncGatewayLogicalNetwork(node *kapi.Node, l3GatewayConfig
 		return err
 	}
 
-	err = gatewayInit(node.Name, clusterSubnets, hostSubnets, joinSubnets, l3GatewayConfig, oc.SCTPSupport)
+	err = gatewayInit(oc.exec, node.Name, clusterSubnets, hostSubnets, joinSubnets, l3GatewayConfig, oc.SCTPSupport)
 	if err != nil {
 		return fmt.Errorf("failed to init shared interface gateway: %v", err)
 	}
@@ -475,7 +476,7 @@ func (oc *Controller) syncGatewayLogicalNetwork(node *kapi.Node, l3GatewayConfig
 		if err != nil {
 			return err
 		}
-		if err := addPolicyBasedRoutes(node.Name, hostIfAddr.IP.String(), l3GatewayConfigIP); err != nil {
+		if err := addPolicyBasedRoutes(oc.exec, node.Name, hostIfAddr.IP.String(), l3GatewayConfigIP); err != nil {
 			return err
 		}
 
@@ -492,7 +493,7 @@ func (oc *Controller) syncGatewayLogicalNetwork(node *kapi.Node, l3GatewayConfig
 		for _, proto := range []kapi.Protocol{kapi.ProtocolTCP, kapi.ProtocolUDP, kapi.ProtocolSCTP} {
 			lbUUID, _ := oc.getGatewayLoadBalancer(gatewayRouter, proto)
 			if lbUUID != "" {
-				_, _, err := util.RunOVNNbctl("--if-exists", "destroy", "load_balancer", lbUUID)
+				_, _, err := oc.exec.RunOVNNbctl("--if-exists", "destroy", "load_balancer", lbUUID)
 				if err != nil {
 					klog.Errorf("Failed to destroy %s load balancer for gateway %s: %v", proto, gatewayRouter, err)
 				}
@@ -552,14 +553,14 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	}
 
 	// Create a router port and provide it the first address on the node's host subnet
-	_, stderr, err := util.RunOVNNbctl(lrpArgs...)
+	_, stderr, err := oc.exec.RunOVNNbctl(lrpArgs...)
 	if err != nil {
 		klog.Errorf("Failed to add logical port to router, stderr: %q, error: %v", stderr, err)
 		return err
 	}
 
 	// Create a logical switch and set its subnet.
-	stdout, stderr, err := util.RunOVNNbctl(lsArgs...)
+	stdout, stderr, err := oc.exec.RunOVNNbctl(lsArgs...)
 	if err != nil {
 		klog.Errorf("Failed to create a logical switch %v, stdout: %q, stderr: %q, error: %v", nodeName, stdout, stderr, err)
 		return err
@@ -567,7 +568,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 
 	// If supported, enable IGMP snooping and querier on the node.
 	if oc.multicastSupport {
-		stdout, stderr, err = util.RunOVNNbctl("set", "logical_switch",
+		stdout, stderr, err = oc.exec.RunOVNNbctl("set", "logical_switch",
 			nodeName, "other-config:mcast_snoop=\"true\"")
 		if err != nil {
 			klog.Errorf("Failed to enable IGMP on logical switch %v, stdout: %q, stderr: %q, error: %v",
@@ -578,7 +579,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 		// Configure querier only if we have an IPv4 address, otherwise
 		// disable querier.
 		if v4Gateway != nil {
-			stdout, stderr, err = util.RunOVNNbctl("set", "logical_switch",
+			stdout, stderr, err = oc.exec.RunOVNNbctl("set", "logical_switch",
 				nodeName, "other-config:mcast_querier=\"true\"",
 				"other-config:mcast_eth_src=\""+nodeLRPMAC.String()+"\"",
 				"other-config:mcast_ip4_src=\""+v4Gateway.String()+"\"")
@@ -588,7 +589,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 				return err
 			}
 		} else {
-			stdout, stderr, err = util.RunOVNNbctl("set", "logical_switch",
+			stdout, stderr, err = oc.exec.RunOVNNbctl("set", "logical_switch",
 				nodeName, "other-config:mcast_querier=\"false\"")
 			if err != nil {
 				klog.Errorf("Failed to disable IGMP Querier on logical switch %v, stdout: %q, stderr: %q, error: %v",
@@ -601,7 +602,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	}
 
 	// Connect the switch to the router.
-	stdout, stderr, err = util.RunOVNNbctl("--", "--may-exist", "lsp-add", nodeName, switchToRouterPrefix+nodeName,
+	stdout, stderr, err = oc.exec.RunOVNNbctl("--", "--may-exist", "lsp-add", nodeName, switchToRouterPrefix+nodeName,
 		"--", "set", "logical_switch_port", switchToRouterPrefix+nodeName, "type=router",
 		"options:router-port="+routerToSwitchPrefix+nodeName, "addresses="+"\""+nodeLRPMAC.String()+"\"")
 	if err != nil {
@@ -613,7 +614,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	if oc.TCPLoadBalancerUUID == "" {
 		return fmt.Errorf("TCP cluster load balancer not created")
 	}
-	stdout, stderr, err = util.RunOVNNbctl("set", "logical_switch", nodeName, "load_balancer="+oc.TCPLoadBalancerUUID)
+	stdout, stderr, err = oc.exec.RunOVNNbctl("set", "logical_switch", nodeName, "load_balancer="+oc.TCPLoadBalancerUUID)
 	if err != nil {
 		klog.Errorf("Failed to set logical switch %v's load balancer, stdout: %q, stderr: %q, error: %v", nodeName, stdout, stderr, err)
 		return err
@@ -622,7 +623,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	// Add any service reject ACLs applicable for TCP LB
 	acls := oc.getAllACLsForServiceLB(oc.TCPLoadBalancerUUID)
 	if len(acls) > 0 {
-		_, _, err = util.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
+		_, _, err = oc.exec.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
 		if err != nil {
 			klog.Warningf("Unable to add TCP reject ACLs: %s for switch: %s, error: %v", acls, nodeName, err)
 		}
@@ -631,7 +632,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	if oc.UDPLoadBalancerUUID == "" {
 		return fmt.Errorf("UDP cluster load balancer not created")
 	}
-	stdout, stderr, err = util.RunOVNNbctl("add", "logical_switch", nodeName, "load_balancer", oc.UDPLoadBalancerUUID)
+	stdout, stderr, err = oc.exec.RunOVNNbctl("add", "logical_switch", nodeName, "load_balancer", oc.UDPLoadBalancerUUID)
 	if err != nil {
 		klog.Errorf("Failed to add logical switch %v's load balancer, stdout: %q, stderr: %q, error: %v", nodeName, stdout, stderr, err)
 		return err
@@ -640,7 +641,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 	// Add any service reject ACLs applicable for UDP LB
 	acls = oc.getAllACLsForServiceLB(oc.UDPLoadBalancerUUID)
 	if len(acls) > 0 {
-		_, _, err = util.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
+		_, _, err = oc.exec.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
 		if err != nil {
 			klog.Warningf("Unable to add UDP reject ACLs: %s for switch: %s, error %v", acls, nodeName, err)
 		}
@@ -650,7 +651,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 		if oc.SCTPLoadBalancerUUID == "" {
 			return fmt.Errorf("SCTP cluster load balancer not created")
 		}
-		stdout, stderr, err = util.RunOVNNbctl("add", "logical_switch", nodeName, "load_balancer", oc.SCTPLoadBalancerUUID)
+		stdout, stderr, err = oc.exec.RunOVNNbctl("add", "logical_switch", nodeName, "load_balancer", oc.SCTPLoadBalancerUUID)
 		if err != nil {
 			klog.Errorf("Failed to add logical switch %v's load balancer, stdout: %q, stderr: %q, error: %v", nodeName, stdout, stderr, err)
 			return err
@@ -659,7 +660,7 @@ func (oc *Controller) ensureNodeLogicalNetwork(nodeName string, hostSubnets []*n
 		// Add any service reject ACLs applicable for SCTP LB
 		acls = oc.getAllACLsForServiceLB(oc.SCTPLoadBalancerUUID)
 		if len(acls) > 0 {
-			_, _, err = util.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
+			_, _, err = oc.exec.RunOVNNbctl("add", "logical_switch", nodeName, "acls", strings.Join(acls, ","))
 			if err != nil {
 				klog.Warningf("Unable to add SCTP reject ACLs: %s for switch: %s, error %v", acls, nodeName, err)
 			}
@@ -747,13 +748,13 @@ func (oc *Controller) deleteNodeHostSubnet(nodeName string, subnet *net.IPNet) e
 
 func (oc *Controller) deleteNodeLogicalNetwork(nodeName string) error {
 	// Remove the logical switch associated with the node
-	if _, stderr, err := util.RunOVNNbctl("--if-exist", "ls-del", nodeName); err != nil {
+	if _, stderr, err := oc.exec.RunOVNNbctl("--if-exist", "ls-del", nodeName); err != nil {
 		return fmt.Errorf("failed to delete logical switch %s, "+
 			"stderr: %q, error: %v", nodeName, stderr, err)
 	}
 
 	// Remove the patch port that connects distributed router to node's logical switch
-	if _, stderr, err := util.RunOVNNbctl("--if-exist", "lrp-del", routerToSwitchPrefix+nodeName); err != nil {
+	if _, stderr, err := oc.exec.RunOVNNbctl("--if-exist", "lrp-del", routerToSwitchPrefix+nodeName); err != nil {
 		return fmt.Errorf("failed to delete logical router port rtos-%s, "+
 			"stderr: %q, error: %v", nodeName, stderr, err)
 	}
@@ -790,7 +791,7 @@ func (oc *Controller) deleteNode(nodeName string, hostSubnets, joinSubnets []*ne
 		klog.Errorf("Error deleting node %s logical network: %v", nodeName, err)
 	}
 
-	if err := gatewayCleanup(nodeName); err != nil {
+	if err := gatewayCleanup(oc.exec, nodeName); err != nil {
 		return fmt.Errorf("failed to clean up node %s gateway: (%v)", nodeName, err)
 	}
 
@@ -941,7 +942,7 @@ func (oc *Controller) syncNodes(nodes []interface{}) {
 		delete(chassisMap, nodeName)
 	}
 
-	nodeSwitches, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	nodeSwitches, stderr, err := oc.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=name,other-config", "find", "logical_switch")
 	if err != nil {
 		klog.Errorf("Failed to get node logical switches: stderr: %q, error: %v",

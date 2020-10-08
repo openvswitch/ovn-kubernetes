@@ -42,15 +42,17 @@ func getGatewayFamilyAddrs(gatewayIfAddrs []*net.IPNet) (string, string) {
 }
 
 type localPortWatcherData struct {
+	exec         util.ExecHelper
 	recorder     record.EventRecorder
 	gatewayIPv4  string
 	gatewayIPv6  string
 	localAddrSet map[string]net.IPNet
 }
 
-func newLocalPortWatcherData(gatewayIfAddrs []*net.IPNet, recorder record.EventRecorder, localAddrSet map[string]net.IPNet) *localPortWatcherData {
+func newLocalPortWatcherData(exec util.ExecHelper, gatewayIfAddrs []*net.IPNet, recorder record.EventRecorder, localAddrSet map[string]net.IPNet) *localPortWatcherData {
 	gatewayIPv4, gatewayIPv6 := getGatewayFamilyAddrs(gatewayIfAddrs)
 	return &localPortWatcherData{
+		exec:         exec,
 		gatewayIPv4:  gatewayIPv4,
 		gatewayIPv6:  gatewayIPv6,
 		recorder:     recorder,
@@ -137,7 +139,7 @@ func (npw *localPortWatcherData) addService(svc *kapi.Service) error {
 				klog.V(5).Infof("ExternalIP: %s is reachable through one of the interfaces on this node, will skip setup", externalIP)
 			} else {
 				if gatewayIP != "" {
-					if stdout, stderr, err := util.RunIP("route", "replace", externalIP, "via", gatewayIP, "dev", localnetGatewayNextHopPort, "table", localnetGatewayExternalIDTable); err != nil {
+					if stdout, stderr, err := npw.exec.RunIP("route", "replace", externalIP, "via", gatewayIP, "dev", localnetGatewayNextHopPort, "table", localnetGatewayExternalIDTable); err != nil {
 						klog.Errorf("Error adding routing table entry for ExternalIP %s: stdout: %s, stderr: %s, err: %v", externalIP, stdout, stderr, err)
 					} else {
 						klog.V(5).Infof("Successfully added route for ExternalIP: %s", externalIP)
@@ -183,7 +185,7 @@ func (npw *localPortWatcherData) deleteService(svc *kapi.Service) error {
 				klog.V(5).Infof("ExternalIP: %s is reachable through one of the interfaces on this node, will skip cleanup", externalIP)
 			} else {
 				if gatewayIP != "" {
-					if stdout, stderr, err := util.RunIP("route", "del", externalIP, "via", gatewayIP, "dev", localnetGatewayNextHopPort, "table", localnetGatewayExternalIDTable); err != nil {
+					if stdout, stderr, err := npw.exec.RunIP("route", "del", externalIP, "via", gatewayIP, "dev", localnetGatewayNextHopPort, "table", localnetGatewayExternalIDTable); err != nil {
 						klog.Errorf("Error delete routing table entry for ExternalIP %s: stdout: %s, stderr: %s, err: %v", externalIP, stdout, stderr, err)
 					} else {
 						klog.V(5).Infof("Successfully deleted route for ExternalIP: %s", externalIP)
@@ -198,7 +200,7 @@ func (npw *localPortWatcherData) deleteService(svc *kapi.Service) error {
 
 func (npw *localPortWatcherData) syncServices(serviceInterface []interface{}) {
 	removeStaleRoutes := func(keepRoutes []string) {
-		stdout, stderr, err := util.RunIP("route", "list", "table", localnetGatewayExternalIDTable)
+		stdout, stderr, err := npw.exec.RunIP("route", "list", "table", localnetGatewayExternalIDTable)
 		if err != nil || stdout == "" {
 			klog.Infof("No routing table entries for ExternalIP table %s: stdout: %s, stderr: %s, err: %v", localnetGatewayExternalIDTable, stdout, stderr, err)
 			return
@@ -213,7 +215,7 @@ func (npw *localPortWatcherData) syncServices(serviceInterface []interface{}) {
 			}
 			if !isFound {
 				klog.V(5).Infof("Deleting stale routing rule: %s", existingRoute)
-				if _, stderr, err := util.RunIP("route", "del", existingRoute, "table", localnetGatewayExternalIDTable); err != nil {
+				if _, stderr, err := npw.exec.RunIP("route", "del", existingRoute, "table", localnetGatewayExternalIDTable); err != nil {
 					klog.Errorf("Error deleting stale routing rule: stderr: %s, err: %v", stderr, err)
 				}
 			}
@@ -243,13 +245,13 @@ func (npw *localPortWatcherData) syncServices(serviceInterface []interface{}) {
 	removeStaleRoutes(keepRoutes)
 }
 
-func initRoutingRules() error {
-	stdout, stderr, err := util.RunIP("rule")
+func initRoutingRules(exec util.ExecHelper) error {
+	stdout, stderr, err := exec.RunIP("rule")
 	if err != nil {
 		return fmt.Errorf("error listing routing rules, stdout: %s, stderr: %s, err: %v", stdout, stderr, err)
 	}
 	if !strings.Contains(stdout, fmt.Sprintf("from all lookup %s", localnetGatewayExternalIDTable)) {
-		if stdout, stderr, err := util.RunIP("rule", "add", "from", "all", "table", localnetGatewayExternalIDTable); err != nil {
+		if stdout, stderr, err := exec.RunIP("rule", "add", "from", "all", "table", localnetGatewayExternalIDTable); err != nil {
 			return fmt.Errorf("error adding routing rule for ExternalIP table (%s): stdout: %s, stderr: %s, err: %v", localnetGatewayExternalIDTable, stdout, stderr, err)
 		}
 	}
@@ -260,7 +262,7 @@ func (n *OvnNode) watchLocalPorts(npw *localPortWatcherData) error {
 	if err := initLocalGatewayIPTables(); err != nil {
 		return err
 	}
-	if err := initRoutingRules(); err != nil {
+	if err := initRoutingRules(n.exec); err != nil {
 		return err
 	}
 	n.watchFactory.AddServiceHandler(cache.ResourceEventHandlerFuncs{
@@ -298,8 +300,8 @@ func (n *OvnNode) watchLocalPorts(npw *localPortWatcherData) error {
 	return nil
 }
 
-func cleanupLocalnetGateway(physnet string) error {
-	stdout, stderr, err := util.RunOVSVsctl("--if-exists", "get", "Open_vSwitch", ".",
+func cleanupLocalnetGateway(exec util.ExecHelper, physnet string) error {
+	stdout, stderr, err := exec.RunOVSVsctl("--if-exists", "get", "Open_vSwitch", ".",
 		"external_ids:ovn-bridge-mappings")
 	if err != nil {
 		return fmt.Errorf("failed to get ovn-bridge-mappings stderr:%s (%v)", stderr, err)
@@ -309,7 +311,7 @@ func cleanupLocalnetGateway(physnet string) error {
 		m := strings.Split(bridgeMapping, ":")
 		if physnet == m[0] {
 			bridgeName := m[1]
-			_, stderr, err = util.RunOVSVsctl("--", "--if-exists", "del-br", bridgeName)
+			_, stderr, err = exec.RunOVSVsctl("--", "--if-exists", "del-br", bridgeName)
 			if err != nil {
 				return fmt.Errorf("failed to ovs-vsctl del-br %s stderr:%s (%v)", bridgeName, stderr, err)
 			}
@@ -353,14 +355,14 @@ func getLoadBalancerIPTRules(svc *kapi.Service, svcPort kapi.ServicePort, gatewa
 // -- to also connection track the outbound north-south traffic through l3 gateway so that
 //    the return traffic can be steered back to OVN logical topology
 // -- to also handle unDNAT return traffic back out of the host
-func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan chan struct{}) error {
+func addDefaultConntrackRulesLocal(exec util.ExecHelper, nodeName, gwBridge, gwIntf string, stopChan chan struct{}) error {
 	// the name of the patch port created by ovn-controller is of the form
 	// patch-<logical_port_name_of_localnet_port>-to-br-int
 	localnetLpName := gwBridge + "_" + nodeName
 	patchPort := "patch-" + localnetLpName + "-to-br-int"
 	// Get ofport of patchPort, but before that make sure ovn-controller created
 	// one for us (waits for about ovsCommandTimeout seconds)
-	ofportPatch, stderr, err := util.RunOVSVsctl("wait-until", "Interface", patchPort, "ofport>0",
+	ofportPatch, stderr, err := exec.RunOVSVsctl("wait-until", "Interface", patchPort, "ofport>0",
 		"--", "get", "Interface", patchPort, "ofport")
 	if err != nil {
 		return fmt.Errorf("failed while waiting on patch port %q to be created by ovn-controller and "+
@@ -368,14 +370,14 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	}
 
 	// Get ofport of physical interface
-	ofportPhys, stderr, err := util.RunOVSVsctl("get", "interface", gwIntf, "ofport")
+	ofportPhys, stderr, err := exec.RunOVSVsctl("get", "interface", gwIntf, "ofport")
 	if err != nil {
 		return fmt.Errorf("failed to get ofport of %s, stderr: %q, error: %v",
 			gwIntf, stderr, err)
 	}
 
 	// replace the left over OpenFlow flows with the FLOOD action flow
-	_, stderr, err = util.AddFloodActionOFFlow(gwBridge)
+	_, stderr, err = util.AddFloodActionOFFlow(exec, gwBridge)
 	if err != nil {
 		return fmt.Errorf("failed to replace-flows on bridge %q stderr:%s (%v)", gwBridge, stderr, err)
 	}
@@ -384,7 +386,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	if config.IPv4Mode {
 		// table 0, packets coming from pods headed externally. Commit connections
 		// so that reverse direction goes back to the pods.
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=100, table=0, in_port=%s, ip, "+
 				"actions=ct(commit, exec(load:0x1->NXM_NX_CT_LABEL), zone=%d), output:%s",
 				defaultOpenFlowCookie, ofportPatch, config.Default.ConntrackZone, ofportPhys))
@@ -396,7 +398,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 
 		// table 0, packets coming from external. Send it through conntrack and
 		// resubmit to table 1 to know the state of the connection.
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=50, table=0, in_port=%s, ip, "+
 				"actions=ct(zone=%d, table=1)", defaultOpenFlowCookie, ofportPhys, config.Default.ConntrackZone))
 		if err != nil {
@@ -408,7 +410,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	if config.IPv6Mode {
 		// table 0, packets coming from pods headed externally. Commit connections
 		// so that reverse direction goes back to the pods.
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=100, table=0, in_port=%s, ipv6, "+
 				"actions=ct(commit, exec(load:0x1->NXM_NX_CT_LABEL), zone=%d), output:%s",
 				defaultOpenFlowCookie, ofportPatch, config.Default.ConntrackZone, ofportPhys))
@@ -420,7 +422,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 
 		// table 0, packets coming from external. Send it through conntrack and
 		// resubmit to table 1 to know the state of the connection.
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=50, table=0, in_port=%s, ipv6, "+
 				"actions=ct(zone=%d, table=1)", defaultOpenFlowCookie, ofportPhys, config.Default.ConntrackZone))
 		if err != nil {
@@ -431,7 +433,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	}
 
 	// table 0, packets coming from host should go out physical port
-	_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+	_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 		fmt.Sprintf("cookie=%s, priority=100, table=0, in_port=LOCAL, actions=output:%s",
 			defaultOpenFlowCookie, ofportPhys))
 	if err != nil {
@@ -440,7 +442,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	nFlows++
 
 	// table 0, packets coming from OVN that are not IP should go out of the host
-	_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+	_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 		fmt.Sprintf("cookie=%s, priority=99, table=0, in_port=%s, actions=output:%s",
 			defaultOpenFlowCookie, ofportPatch, ofportPhys))
 	if err != nil {
@@ -450,7 +452,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	nFlows++
 
 	// table 1, known connections with ct_label 1 go to pod
-	_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+	_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 		fmt.Sprintf("cookie=%s, priority=100, table=1, ct_label=0x1, "+
 			"actions=output:%s", defaultOpenFlowCookie, ofportPatch))
 	if err != nil {
@@ -469,7 +471,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 			ipPrefix = "ipv6"
 		}
 		mask, _ := cidr.Mask.Size()
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=3, table=1, %s, %s_dst=%s/%d, actions=output:%s",
 				defaultOpenFlowCookie, ipPrefix, ipPrefix, cidr.IP, mask, ofportPatch))
 		if err != nil {
@@ -483,7 +485,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	if config.IPv6Mode {
 		// REMOVEME(trozet) when https://bugzilla.kernel.org/show_bug.cgi?id=11797 is resolved
 		// must flood icmpv6 traffic as it fails to create a CT entry
-		_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+		_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 			fmt.Sprintf("cookie=%s, priority=1, table=1,icmp6 actions=FLOOD", defaultOpenFlowCookie))
 		if err != nil {
 			return fmt.Errorf("failed to add openflow flow to %s, stderr: %q, "+
@@ -493,7 +495,7 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	}
 
 	// table 1, all other connections go to host
-	_, stderr, err = util.RunOVSOfctl("add-flow", gwBridge,
+	_, stderr, err = exec.RunOVSOfctl("add-flow", gwBridge,
 		fmt.Sprintf("cookie=%s, priority=0, table=1, actions=LOCAL", defaultOpenFlowCookie))
 	if err != nil {
 		return fmt.Errorf("failed to add openflow flow to %s, stderr: %q, "+
@@ -502,6 +504,6 @@ func addDefaultConntrackRulesLocal(nodeName, gwBridge, gwIntf string, stopChan c
 	nFlows++
 
 	// add health check function to check default OpenFlow flows are on the shared gateway bridge
-	go checkDefaultConntrackRules(gwBridge, gwIntf, patchPort, ofportPhys, ofportPatch, nFlows, stopChan)
+	go checkDefaultConntrackRules(exec, gwBridge, gwIntf, patchPort, ofportPhys, ofportPatch, nFlows, stopChan)
 	return nil
 }

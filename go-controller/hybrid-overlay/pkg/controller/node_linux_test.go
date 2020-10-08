@@ -175,6 +175,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 	var (
 		app      *cli.App
 		fexec    *ovntest.FakeExec
+		exec     util.ExecHelper
 		netns    ns.NetNS
 		stopChan chan struct{}
 		wg       *sync.WaitGroup
@@ -195,8 +196,9 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		stopChan = make(chan struct{})
 		wg = &sync.WaitGroup{}
 
+		var err error
 		fexec = ovntest.NewLooseCompareFakeExec()
-		err := util.SetExec(fexec)
+		exec, err = util.NewExecHelper(fexec)
 		Expect(err).NotTo(HaveOccurred())
 
 		netns, err = testutils.NewNS()
@@ -251,6 +253,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -300,6 +303,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -348,6 +352,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -397,6 +402,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -452,6 +458,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -504,6 +511,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -555,6 +563,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -628,6 +637,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			n, err := NewNode(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				thisNode,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Pods().Informer(),

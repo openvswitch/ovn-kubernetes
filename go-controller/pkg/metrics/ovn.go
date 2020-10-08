@@ -91,8 +91,8 @@ var (
 	ovnControllerOvsLibVersion string
 )
 
-func getOvnControllerVersionInfo() {
-	stdout, _, err := util.RunOVNControllerAppCtl("version")
+func getOvnControllerVersionInfo(exec util.ExecHelper) {
+	stdout, _, err := exec.RunOVNControllerAppCtl("version")
 	if err != nil {
 		return
 	}
@@ -213,7 +213,7 @@ var ovnControllerCoverageShowMetricsMap = map[string]*metricDetails{
 // values (ovn-openflow-probe-interval, ovn-remote-probe-interval, ovn-monitor-all,
 // ovn-encap-ip, ovn-encap-type, ovn-remote) through
 // "ovs-vsctl list --columns=external_ids Open_vSwitch ."
-func setOvnControllerConfigurationMetrics() (err error) {
+func setOvnControllerConfigurationMetrics(exec util.ExecHelper) (err error) {
 	var stdout, stderr string
 
 	defer func() {
@@ -223,7 +223,7 @@ func setOvnControllerConfigurationMetrics() (err error) {
 		}
 	}()
 
-	stdout, stderr, err = util.RunOVSVsctl("--no-headings", "--data=bare",
+	stdout, stderr, err = exec.RunOVSVsctl("--no-headings", "--data=bare",
 		"--columns=external_ids", "list", "Open_vSwitch", ".")
 	if err != nil {
 		return fmt.Errorf("failed to get Open_vSwitch table's external_ids column "+
@@ -269,9 +269,9 @@ func setOvnControllerConfigurationMetrics() (err error) {
 	return nil
 }
 
-func ovnControllerConfigurationMetricsUpdater() {
+func ovnControllerConfigurationMetricsUpdater(exec util.ExecHelper) {
 	for {
-		err := setOvnControllerConfigurationMetrics()
+		err := setOvnControllerConfigurationMetrics(exec)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 		}
@@ -279,9 +279,9 @@ func ovnControllerConfigurationMetricsUpdater() {
 	}
 }
 
-func getPortCount(portType string) float64 {
+func getPortCount(exec util.ExecHelper, portType string) float64 {
 	var portCount float64
-	stdout, stderr, err := util.RunOVSVsctl("--no-headings", "--data=bare", "--format=csv",
+	stdout, stderr, err := exec.RunOVSVsctl("--no-headings", "--data=bare", "--format=csv",
 		"--columns=name", "find", "interface", "type="+portType)
 	if err != nil {
 		klog.Errorf("Failed to get %s interface count, stderr(%s): (%v)", portType, stderr, err)
@@ -302,8 +302,8 @@ func getPortCount(portType string) float64 {
 	return portCount
 }
 
-func RegisterOvnControllerMetrics() {
-	getOvnControllerVersionInfo()
+func RegisterOvnControllerMetrics(exec util.ExecHelper) {
+	getOvnControllerVersionInfo(exec)
 	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Namespace: MetricOvnNamespace,
@@ -327,7 +327,7 @@ func RegisterOvnControllerMetrics() {
 			Name:      "integration_bridge_openflow_total",
 			Help:      "The total number of OpenFlow flows in the integration bridge.",
 		}, func() float64 {
-			stdout, stderr, err := util.RunOVSOfctl("-t", "5", "dump-aggregate", "br-int")
+			stdout, stderr, err := exec.RunOVSOfctl("-t", "5", "dump-aggregate", "br-int")
 			if err != nil {
 				klog.Errorf("Failed to get flow count for br-int, stderr(%s): (%v)",
 					stderr, err)
@@ -351,7 +351,7 @@ func RegisterOvnControllerMetrics() {
 				"bridge to physical OVS bridge and br-local OVS bridge.",
 		},
 		func() float64 {
-			return getPortCount("patch")
+			return getPortCount(exec, "patch")
 		}))
 	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
@@ -361,7 +361,7 @@ func RegisterOvnControllerMetrics() {
 			Help:      "Captures the number of geneve ports that are on br-int OVS bridge.",
 		},
 		func() float64 {
-			return getPortCount("geneve")
+			return getPortCount(exec, "geneve")
 		}))
 
 	// register ovn-controller configuration metrics
@@ -377,7 +377,7 @@ func RegisterOvnControllerMetrics() {
 	registerCoverageShowMetrics(ovnController, MetricOvnNamespace, MetricOvnSubsystemController)
 
 	// ovn-controller configuration metrics updater
-	go ovnControllerConfigurationMetricsUpdater()
+	go ovnControllerConfigurationMetricsUpdater(exec)
 	// ovn-controller coverage show metrics updater
-	go coverageShowMetricsUpdater(ovnController)
+	go coverageShowMetricsUpdater(exec, ovnController)
 }

@@ -51,12 +51,14 @@ type AddressSet interface {
 	Destroy() error
 }
 
-type ovnAddressSetFactory struct{}
+type ovnAddressSetFactory struct {
+	exec util.ExecHelper
+}
 
 // NewOvnAddressSetFactory creates a new AddressSetFactory backed by
 // address set objects that execute OVN commands
-func NewOvnAddressSetFactory() AddressSetFactory {
-	return &ovnAddressSetFactory{}
+func NewOvnAddressSetFactory(exec util.ExecHelper) AddressSetFactory {
+	return &ovnAddressSetFactory{exec: exec}
 }
 
 // ovnAddressSetFactory implements the AddressSetFactory interface
@@ -64,14 +66,14 @@ var _ AddressSetFactory = &ovnAddressSetFactory{}
 
 // NewAddressSet returns a new address set object
 func (asf *ovnAddressSetFactory) NewAddressSet(name string, ips []net.IP) (AddressSet, error) {
-	return newOvnAddressSets(name, ips)
+	return newOvnAddressSets(asf.exec, name, ips)
 }
 
 // ForEachAddressSet will pass the unhashed address set name, namespace name
 // and the first suffix in the name to the 'iteratorFn' for every address_set in
 // OVN. (Unhashed address set names are of the form namespaceName[.suffix1.suffix2. .suffixN])
 func (asf *ovnAddressSetFactory) ForEachAddressSet(iteratorFn AddressSetIterFunc) error {
-	output, stderr, err := util.RunOVNNbctl("--format=csv", "--data=bare", "--no-heading",
+	output, stderr, err := asf.exec.RunOVNNbctl("--format=csv", "--data=bare", "--no-heading",
 		"--columns=external_ids", "find", "address_set")
 	if err != nil {
 		return fmt.Errorf("error reading address sets: "+
@@ -127,21 +129,21 @@ func (asf *ovnAddressSetFactory) DestroyAddressSetInBackingStore(name string) er
 	// will not have v4 and v6 suffix as they were same as namespace name. Hence we will always try to destroy
 	// the address set with raw name(namespace name), v4 name and v6 name.  The method destroyAddressSet uses
 	// --if-exists parameter which will take care of deleting the address set only if it exists.
-	err := destroyAddressSet(name)
+	err := destroyAddressSet(asf.exec, name)
 	if err != nil {
 		return err
 	}
-	err = destroyAddressSet(getIPv4ASName(name))
+	err = destroyAddressSet(asf.exec, getIPv4ASName(name))
 	if err != nil {
 		return err
 	}
-	err = destroyAddressSet(getIPv6ASName(name))
+	err = destroyAddressSet(asf.exec, getIPv6ASName(name))
 	return err
 }
 
-func destroyAddressSet(name string) error {
+func destroyAddressSet(exec util.ExecHelper, name string) error {
 	hashName := hashedAddressSet(name)
-	_, stderr, err := util.RunOVNNbctl("--if-exists", "destroy", "address_set", hashName)
+	_, stderr, err := exec.RunOVNNbctl("--if-exists", "destroy", "address_set", hashName)
 	if err != nil {
 		return fmt.Errorf("failed to destroy address set %q, stderr: %q, (%v)",
 			hashName, stderr, err)
@@ -151,6 +153,7 @@ func destroyAddressSet(name string) error {
 
 type ovnAddressSet struct {
 	name     string
+	exec     util.ExecHelper
 	hashName string
 	uuid     string
 	ips      map[string]net.IP
@@ -175,7 +178,7 @@ func asDetail(as *ovnAddressSet) string {
 	return fmt.Sprintf("%s/%s/%s", as.uuid, as.name, as.hashName)
 }
 
-func newOvnAddressSets(name string, ips []net.IP) (*ovnAddressSets, error) {
+func newOvnAddressSets(exec util.ExecHelper, name string, ips []net.IP) (*ovnAddressSets, error) {
 	var (
 		v4set, v6set *ovnAddressSet
 		err          error
@@ -191,13 +194,13 @@ func newOvnAddressSets(name string, ips []net.IP) (*ovnAddressSets, error) {
 		}
 	}
 	if config.IPv4Mode {
-		v4set, err = newOvnAddressSet(getIPv4ASName(name), v4IPs)
+		v4set, err = newOvnAddressSet(exec, getIPv4ASName(name), v4IPs)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if config.IPv6Mode {
-		v6set, err = newOvnAddressSet(getIPv6ASName(name), v6IPs)
+		v6set, err = newOvnAddressSet(exec, getIPv6ASName(name), v6IPs)
 		if err != nil {
 			return nil, err
 		}
@@ -205,9 +208,10 @@ func newOvnAddressSets(name string, ips []net.IP) (*ovnAddressSets, error) {
 	return &ovnAddressSets{name: name, ipv4: v4set, ipv6: v6set}, nil
 }
 
-func newOvnAddressSet(name string, ips []net.IP) (*ovnAddressSet, error) {
+func newOvnAddressSet(exec util.ExecHelper, name string, ips []net.IP) (*ovnAddressSet, error) {
 	as := &ovnAddressSet{
 		name:     name,
+		exec:     exec,
 		hashName: hashedAddressSet(name),
 		ips:      make(map[string]net.IP),
 	}
@@ -215,7 +219,7 @@ func newOvnAddressSet(name string, ips []net.IP) (*ovnAddressSet, error) {
 		as.ips[ip.String()] = ip
 	}
 
-	uuid, stderr, err := util.RunOVNNbctl("--data=bare",
+	uuid, stderr, err := exec.RunOVNNbctl("--data=bare",
 		"--no-heading", "--columns=_uuid", "find", "address_set",
 		"name="+as.hashName)
 	if err != nil {
@@ -242,7 +246,7 @@ func newOvnAddressSet(name string, ips []net.IP) (*ovnAddressSet, error) {
 		if len(joinedIPs) > 0 {
 			args = append(args, "addresses="+joinedIPs)
 		}
-		as.uuid, stderr, err = util.RunOVNNbctl(args...)
+		as.uuid, stderr, err = exec.RunOVNNbctl(args...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create address set %q, stderr: %q (%v)",
 				asDetail(as), stderr, err)
@@ -341,13 +345,13 @@ func (as *ovnAddressSet) joinIPs() string {
 func (as *ovnAddressSet) setOrClear() error {
 	joinedIPs := as.joinIPs()
 	if len(joinedIPs) > 0 {
-		_, stderr, err := util.RunOVNNbctl("set", "address_set", as.uuid, "addresses="+joinedIPs)
+		_, stderr, err := as.exec.RunOVNNbctl("set", "address_set", as.uuid, "addresses="+joinedIPs)
 		if err != nil {
 			return fmt.Errorf("failed to set address set %q, stderr: %q (%v)",
 				asDetail(as), stderr, err)
 		}
 	} else {
-		_, stderr, err := util.RunOVNNbctl("clear", "address_set", as.uuid, "addresses")
+		_, stderr, err := as.exec.RunOVNNbctl("clear", "address_set", as.uuid, "addresses")
 		if err != nil {
 			return fmt.Errorf("failed to clear address set %q, stderr: %q (%v)",
 				asDetail(as), stderr, err)
@@ -364,7 +368,7 @@ func (as *ovnAddressSet) addIP(ip net.IP) error {
 
 	klog.V(5).Infof("(%s) adding IP %s to address set", asDetail(as), ipStr)
 
-	_, stderr, err := util.RunOVNNbctl("add", "address_set", as.uuid, "addresses", `"`+ipStr+`"`)
+	_, stderr, err := as.exec.RunOVNNbctl("add", "address_set", as.uuid, "addresses", `"`+ipStr+`"`)
 	if err != nil {
 		return fmt.Errorf("failed to add IP %q to address set %q, stderr: %q (%v)",
 			ip, asDetail(as), stderr, err)
@@ -382,7 +386,7 @@ func (as *ovnAddressSet) deleteIP(ip net.IP) error {
 
 	klog.V(5).Infof("(%s) deleting IP %s from address set", asDetail(as), ipStr)
 
-	_, stderr, err := util.RunOVNNbctl("remove", "address_set", as.uuid, "addresses", `"`+ipStr+`"`)
+	_, stderr, err := as.exec.RunOVNNbctl("remove", "address_set", as.uuid, "addresses", `"`+ipStr+`"`)
 	if err != nil {
 		return fmt.Errorf("failed to remove IP %q from address set %q, stderr: %q (%v)",
 			ip, asDetail(as), stderr, err)
@@ -394,7 +398,7 @@ func (as *ovnAddressSet) deleteIP(ip net.IP) error {
 
 func (as *ovnAddressSet) destroy() error {
 	klog.V(5).Infof("destroy(%s)", asDetail(as))
-	_, stderr, err := util.RunOVNNbctl("--if-exists", "destroy", "address_set", as.uuid)
+	_, stderr, err := as.exec.RunOVNNbctl("--if-exists", "destroy", "address_set", as.uuid)
 	if err != nil {
 		return fmt.Errorf("failed to destroy address set %q, stderr: %q, (%v)",
 			asDetail(as), stderr, err)

@@ -27,7 +27,7 @@ func (n *OvnNode) createManagementPort(hostSubnets []*net.IPNet, nodeAnnotator k
 
 	// Create a OVS internal interface.
 	legacyMgmtIntfName := util.GetLegacyK8sMgmtIntfName(nodeName)
-	stdout, stderr, err := util.RunOVSVsctl(
+	stdout, stderr, err := n.exec.RunOVSVsctl(
 		"--", "--if-exists", "del-port", "br-int", legacyMgmtIntfName,
 		"--", "--may-exist", "add-port", "br-int", util.K8sMgmtIntfName,
 		"--", "set", "interface", util.K8sMgmtIntfName,
@@ -37,13 +37,13 @@ func (n *OvnNode) createManagementPort(hostSubnets []*net.IPNet, nodeAnnotator k
 		klog.Errorf("Failed to add port to br-int, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 		return err
 	}
-	macAddress, err := util.GetOVSPortMACAddress(util.K8sMgmtIntfName)
+	macAddress, err := util.GetOVSPortMACAddress(n.exec, util.K8sMgmtIntfName)
 	if err != nil {
 		klog.Errorf("Failed to get management port MAC address: %v", err)
 		return err
 	}
 	// persist the MAC address so that upon node reboot we get back the same mac address.
-	_, stderr, err = util.RunOVSVsctl("set", "interface", util.K8sMgmtIntfName,
+	_, stderr, err = n.exec.RunOVSVsctl("set", "interface", util.K8sMgmtIntfName,
 		fmt.Sprintf("mac=%s", strings.ReplaceAll(macAddress.String(), ":", "\\:")))
 	if err != nil {
 		klog.Errorf("Failed to persist MAC address %q for %q: stderr:%s (%v)", macAddress.String(),
@@ -87,7 +87,7 @@ func (n *OvnNode) createManagementPort(hostSubnets []*net.IPNet, nodeAnnotator k
 				return err
 			}
 			err = n.watchLocalPorts(
-				newLocalPortWatcherData(gatewayIfAddrs, n.recorder, localAddrSet),
+				newLocalPortWatcherData(n.exec, gatewayIfAddrs, n.recorder, localAddrSet),
 			)
 			if err != nil {
 				return err
@@ -95,14 +95,14 @@ func (n *OvnNode) createManagementPort(hostSubnets []*net.IPNet, nodeAnnotator k
 		}
 	}
 
-	waiter.AddWait(managementPortReady, nil)
+	waiter.AddWait(n.managementPortReady, nil)
 	return nil
 }
 
 // managementPortReady will check to see if OpenFlow rules for management port has been created
-func managementPortReady() (bool, error) {
+func (n *OvnNode) managementPortReady() (bool, error) {
 	// Get the OVS interface name for the Management Port
-	ofport, _, err := util.RunOVSVsctl("--if-exists", "get", "interface", util.K8sMgmtIntfName, "ofport")
+	ofport, _, err := n.exec.RunOVSVsctl("--if-exists", "get", "interface", util.K8sMgmtIntfName, "ofport")
 	if err != nil {
 		return false, nil
 	}
@@ -110,7 +110,7 @@ func managementPortReady() (bool, error) {
 	// OpenFlow table 65 performs logical-to-physical translation. It matches the packet’s logical
 	// egress  port. Its actions output the packet to the port attached to the OVN integration bridge
 	// that represents that logical  port.
-	stdout, _, err := util.RunOVSOfctl("--no-stats", "--no-names", "dump-flows", "br-int",
+	stdout, _, err := n.exec.RunOVSOfctl("--no-stats", "--no-names", "dump-flows", "br-int",
 		"table=65,out_port="+ofport)
 	if err != nil {
 		return false, nil

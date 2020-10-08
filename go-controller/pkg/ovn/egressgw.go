@@ -105,7 +105,7 @@ func (oc *Controller) addGWRoutesForNamespace(namespace string, gws []net.IP, ns
 		for _, gw := range gws {
 			for _, podIP := range pod.Status.PodIPs {
 				mask := GetIPFullMask(podIP.IP)
-				_, stderr, err := util.RunOVNNbctl("--", "--may-exist", "--policy=src-ip", "--ecmp-symmetric-reply",
+				_, stderr, err := oc.exec.RunOVNNbctl("--", "--may-exist", "--policy=src-ip", "--ecmp-symmetric-reply",
 					"lr-route-add", gr, podIP.IP+mask, gw.String())
 				if err != nil {
 					return fmt.Errorf("unable to add src-ip route to GR router, stderr:%q, err:%v", stderr, err)
@@ -168,7 +168,7 @@ func (oc *Controller) deletePodGWRoutesForNamespace(pod, namespace, node string)
 				klog.Error(err)
 			}
 
-			_, stderr, err := util.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
+			_, stderr, err := oc.exec.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
 				"lr-route-del", gr, podIP+mask, gwIP.String())
 			if err != nil {
 				klog.Errorf("Unable to delete pod %s route to GR %s, GW: %s, stderr:%q, err:%v",
@@ -201,7 +201,7 @@ func (oc *Controller) deleteGWRoutesForNamespace(nsInfo *namespaceInfo) {
 			if err := oc.delHybridRoutePolicyForPod(net.ParseIP(podIP), node); err != nil {
 				klog.Error(err)
 			}
-			_, stderr, err := util.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
+			_, stderr, err := oc.exec.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
 				"lr-route-del", gr, podIP+mask, gw)
 			if err != nil {
 				klog.Errorf("Unable to delete src-ip route to GR router, stderr:%q, err:%v", stderr, err)
@@ -234,7 +234,7 @@ func (oc *Controller) deleteGWRoutesForPod(namespace string, podIPNets []*net.IP
 				if err := oc.delHybridRoutePolicyForPod(podIPNet.IP, node); err != nil {
 					klog.Error(err)
 				}
-				_, stderr, err := util.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
+				_, stderr, err := oc.exec.RunOVNNbctl("--", "--if-exists", "--policy=src-ip",
 					"lr-route-del", gr, pod+mask, gw)
 				if err != nil {
 					klog.Errorf("Unable to delete external gw ecmp route to GR router, stderr:%q, err:%v", stderr, err)
@@ -260,7 +260,7 @@ func (oc *Controller) addGWRoutesForPod(routingGWs []net.IP, podIfAddrs []*net.I
 		for _, podIPNet := range podIfAddrs {
 			podIP := podIPNet.IP.String()
 			mask := GetIPFullMask(podIP)
-			_, stderr, err := util.RunOVNNbctl("--may-exist", "--policy=src-ip", "--ecmp-symmetric-reply",
+			_, stderr, err := oc.exec.RunOVNNbctl("--may-exist", "--policy=src-ip", "--ecmp-symmetric-reply",
 				"lr-route-add", gr, podIP+mask, gw)
 			if err != nil {
 				return fmt.Errorf("unable to add external gw src-ip route to GR router, stderr:%q, err:%v", stderr, err)
@@ -284,7 +284,7 @@ func (oc *Controller) deletePerPodGRSNAT(node string, podIPNets []*net.IPNet) {
 	gr := "GR_" + node
 	for _, podIPNet := range podIPNets {
 		podIP := podIPNet.IP.String()
-		stdout, stderr, err := util.RunOVNNbctl("--", "--if-exists", "lr-nat-del",
+		stdout, stderr, err := oc.exec.RunOVNNbctl("--", "--if-exists", "lr-nat-del",
 			gr, "snat", podIP)
 		if err != nil {
 			klog.Errorf("Failed to delete SNAT rule for pod on gateway router %s, "+
@@ -315,7 +315,7 @@ func (oc *Controller) addPerPodGRSNAT(pod *kapi.Pod, podIfAddrs []*net.IPNet) er
 			// If the type is snat and the logical IP is the same, but external IP is different,
 			// even with --may-exist, the add may error out. this is because, for snat,
 			// (type, router, logical ip) is considered a key for uniqueness
-			stdout, stderr, err := util.RunOVNNbctl("--if-exists", "lr-nat-del", gr, "snat", podIP+mask,
+			stdout, stderr, err := oc.exec.RunOVNNbctl("--if-exists", "lr-nat-del", gr, "snat", podIP+mask,
 				"--", "lr-nat-add",
 				gr, "snat", gwIP, podIP+mask)
 			if err != nil {
@@ -339,7 +339,7 @@ func (oc *Controller) addHybridRoutePolicyForPod(podIP net.IP, node string) erro
 			l3Prefix = "ip4"
 		}
 		// get the GR to join switch ip address
-		out, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=networks", "find",
+		out, stderr, err := oc.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=networks", "find",
 			"logical_router_port", fmt.Sprintf("name=rtoj-GR_%s", node))
 		if err != nil {
 			return fmt.Errorf("unable to find IP address for node: %s, rtoj port, stderr: %s, err: %v", node,
@@ -365,7 +365,7 @@ func (oc *Controller) addHybridRoutePolicyForPod(podIP net.IP, node string) erro
 		// traffic destined outside of cluster subnet go to GR
 		matchStr := fmt.Sprintf(`inport == "rtos-%s" && %s.src == %s`, node, l3Prefix, podIP)
 		matchStr += matchDst
-		_, stderr, err = util.RunOVNNbctl("lr-policy-add", ovnClusterRouter, "501", matchStr, "reroute",
+		_, stderr, err = oc.exec.RunOVNNbctl("lr-policy-add", ovnClusterRouter, "501", matchStr, "reroute",
 			grJoinIP.String())
 		if err != nil {
 			// TODO: lr-policy-add doesn't support --may-exist, resort to this workaround for now.
@@ -405,7 +405,7 @@ func (oc *Controller) delHybridRoutePolicyForPod(podIP net.IP, node string) erro
 		}
 		matchStr := fmt.Sprintf(`inport == "rtos-%s" && %s.src == %s`, node, l3Prefix, podIP)
 		matchStr += matchDst
-		_, stderr, err := util.RunOVNNbctl("lr-policy-del", ovnClusterRouter, "501", matchStr)
+		_, stderr, err := oc.exec.RunOVNNbctl("lr-policy-del", ovnClusterRouter, "501", matchStr)
 		if err != nil {
 			klog.Errorf("Failed to remove policy: %s, on: %s, stderr: %s, err: %v",
 				matchStr, ovnClusterRouter, stderr, err)

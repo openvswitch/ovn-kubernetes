@@ -87,11 +87,11 @@ func countLocalEndpoints(ep *kapi.Endpoints, nodeName string) int {
 }
 
 // check for OVS internal ports without any ofport assigned, they are stale ports that must be deleted
-func checkForStaleOVSInterfaces(stopChan chan struct{}) {
+func checkForStaleOVSInterfaces(exec util.ExecHelper, stopChan chan struct{}) {
 	for {
 		select {
 		case <-time.After(60 * time.Second):
-			stdout, _, err := util.RunOVSVsctl("--data=bare", "--no-headings", "--columns=name", "find",
+			stdout, _, err := exec.RunOVSVsctl("--data=bare", "--no-headings", "--columns=name", "find",
 				"interface", "ofport=-1")
 			if err != nil {
 				klog.Errorf("Failed to list OVS interfaces with ofport set to -1")
@@ -103,7 +103,7 @@ func checkForStaleOVSInterfaces(stopChan chan struct{}) {
 			values := strings.Split(stdout, "\n\n")
 			for _, val := range values {
 				klog.Warningf("Found stale interface %s, so deleting it", val)
-				_, stderr, err := util.RunOVSVsctl("--if-exists", "--with-iface", "del-port", val)
+				_, stderr, err := exec.RunOVSVsctl("--if-exists", "--with-iface", "del-port", val)
 				if err != nil {
 					klog.Errorf("Failed to delete OVS port/interface %s: stderr: %s (%v)",
 						val, stderr, err)
@@ -117,13 +117,13 @@ func checkForStaleOVSInterfaces(stopChan chan struct{}) {
 
 // checkDefaultOpenFlow checks for the existence of default OpenFlow rules and
 // exits if the output is not as expected
-func checkDefaultConntrackRules(gwBridge string, physIntf, patchIntf, ofportPhys, ofportPatch string,
+func checkDefaultConntrackRules(exec util.ExecHelper, gwBridge string, physIntf, patchIntf, ofportPhys, ofportPatch string,
 	nFlows int, stopChan chan struct{}) {
 	flowCount := fmt.Sprintf("flow_count=%d", nFlows)
 	for {
 		select {
 		case <-time.After(15 * time.Second):
-			out, _, err := util.RunOVSOfctl("dump-aggregate", gwBridge,
+			out, _, err := exec.RunOVSOfctl("dump-aggregate", gwBridge,
 				fmt.Sprintf("cookie=%s/-1", defaultOpenFlowCookie))
 			if err != nil {
 				klog.Errorf("Failed to dump aggregate statistics of the default OpenFlow rules: %v", err)
@@ -138,7 +138,7 @@ func checkDefaultConntrackRules(gwBridge string, physIntf, patchIntf, ofportPhys
 
 			// it could be that the ovn-controller recreated the patch between the host OVS bridge and
 			// the integration bridge, as a result the ofport number changed for that patch interface
-			curOfportPatch, stderr, err := util.RunOVSVsctl("--if-exists", "get", "Interface", patchIntf, "ofport")
+			curOfportPatch, stderr, err := exec.RunOVSVsctl("--if-exists", "get", "Interface", patchIntf, "ofport")
 			if err != nil {
 				klog.Errorf("Failed to get ofport of %s, stderr: %q, error: %v", patchIntf, stderr, err)
 				continue
@@ -151,7 +151,7 @@ func checkDefaultConntrackRules(gwBridge string, physIntf, patchIntf, ofportPhys
 
 			// it could be that someone removed the physical interface and added it back on the OVS host
 			// bridge, as a result the ofport number changed for that physical interface
-			curOfportPhys, stderr, err := util.RunOVSVsctl("--if-exists", "get", "interface", physIntf, "ofport")
+			curOfportPhys, stderr, err := exec.RunOVSVsctl("--if-exists", "get", "interface", physIntf, "ofport")
 			if err != nil {
 				klog.Errorf("Failed to get ofport of %s, stderr: %q, error: %v", physIntf, stderr, err)
 				continue

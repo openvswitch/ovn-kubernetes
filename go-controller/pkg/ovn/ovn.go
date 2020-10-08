@@ -68,6 +68,8 @@ type loadBalancerConf struct {
 type namespaceInfo struct {
 	sync.Mutex
 
+	exec util.ExecHelper
+
 	// addressSet is an address set object that holds the IP addresses
 	// of all pods in the namespace.
 	addressSet AddressSet
@@ -115,6 +117,7 @@ type eNode struct {
 // and reacting upon the watched resources (e.g. pods, endpoints)
 type Controller struct {
 	kube                  kube.Interface
+	exec                  util.ExecHelper
 	watchFactory          *factory.WatchFactory
 	egressFirewallHandler *factory.Handler
 	stopChan              <-chan struct{}
@@ -244,19 +247,20 @@ func GetIPFullMask(ip string) string {
 
 // NewOvnController creates a new OVN controller for creating logical network
 // infrastructure and policy
-func NewOvnController(kubeClient kubernetes.Interface, egressIPClient egressipapi.Interface, egressFirewallClient egressfirewallclientset.Interface, wf *factory.WatchFactory,
-	stopChan <-chan struct{}, addressSetFactory AddressSetFactory, ovnNBClient goovn.Client, ovnSBClient goovn.Client, recorder record.EventRecorder) *Controller {
+func NewOvnController(kubeClient kubernetes.Interface, exec util.ExecHelper, egressIPClient egressipapi.Interface, egressFirewallClient egressfirewallclientset.Interface,
+	wf *factory.WatchFactory, stopChan <-chan struct{}, addressSetFactory AddressSetFactory, ovnNBClient goovn.Client, ovnSBClient goovn.Client, recorder record.EventRecorder) *Controller {
 
 	if addressSetFactory == nil {
-		addressSetFactory = NewOvnAddressSetFactory()
+		addressSetFactory = NewOvnAddressSetFactory(exec)
 	}
-	modeEgressIP := newModeEgressIP()
+	modeEgressIP := newModeEgressIP(exec)
 	return &Controller{
 		kube: &kube.Kube{
 			KClient:              kubeClient,
 			EIPClient:            egressIPClient,
 			EgressFirewallClient: egressFirewallClient,
 		},
+		exec:                          exec,
 		watchFactory:                  wf,
 		stopChan:                      stopChan,
 		masterSubnetAllocator:         subnetallocator.NewSubnetAllocator(),
@@ -344,8 +348,8 @@ type emptyLBBackendEvent struct {
 	uuid     string
 }
 
-func newModeEgressIP() modeEgressIP {
-	return &egressIPMode{}
+func newModeEgressIP(exec util.ExecHelper) modeEgressIP {
+	return &egressIPMode{exec: exec}
 }
 
 func extractEmptyLBBackendsEvents(out []byte) ([]emptyLBBackendEvent, error) {
@@ -465,7 +469,7 @@ func (oc *Controller) syncPeriodic() {
 func (oc *Controller) ovnControllerEventChecker() {
 	ticker := time.NewTicker(5 * time.Second)
 
-	_, _, err := util.RunOVNNbctl("set", "nb_global", ".", "options:controller_event=true")
+	_, _, err := oc.exec.RunOVNNbctl("set", "nb_global", ".", "options:controller_event=true")
 	if err != nil {
 		klog.Error("Unable to enable controller events. Unidling not possible")
 		return
@@ -474,7 +478,7 @@ func (oc *Controller) ovnControllerEventChecker() {
 	for {
 		select {
 		case <-ticker.C:
-			out, _, err := util.RunOVNSbctl("--format=json", "list", "controller_event")
+			out, _, err := oc.exec.RunOVNSbctl("--format=json", "list", "controller_event")
 			if err != nil {
 				continue
 			}
@@ -485,7 +489,7 @@ func (oc *Controller) ovnControllerEventChecker() {
 			}
 
 			for _, event := range events {
-				_, _, err := util.RunOVNSbctl("destroy", "controller_event", event.uuid)
+				_, _, err := oc.exec.RunOVNSbctl("destroy", "controller_event", event.uuid)
 				if err != nil {
 					// Don't unidle until we are able to remove the controller event
 					klog.Errorf("Unable to remove controller event %s", event.uuid)
@@ -881,7 +885,7 @@ func (oc *Controller) syncNodeGateway(node *kapi.Node, hostSubnets []*net.IPNet)
 		hostSubnets, _ = util.ParseNodeHostSubnetAnnotation(node)
 	}
 	if l3GatewayConfig.Mode == config.GatewayModeDisabled {
-		if err := gatewayCleanup(node.Name); err != nil {
+		if err := gatewayCleanup(oc.exec, node.Name); err != nil {
 			return fmt.Errorf("error cleaning up gateway for node %s: %v", node.Name, err)
 		}
 	} else if hostSubnets != nil {

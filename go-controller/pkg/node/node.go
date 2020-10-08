@@ -2,7 +2,6 @@ package node
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -31,23 +30,25 @@ import (
 type OvnNode struct {
 	name         string
 	Kube         kube.Interface
+	exec         util.ExecHelper
 	watchFactory *factory.WatchFactory
 	stopChan     chan struct{}
 	recorder     record.EventRecorder
 }
 
 // NewNode creates a new controller for node management
-func NewNode(kubeClient kubernetes.Interface, wf *factory.WatchFactory, name string, stopChan chan struct{}, eventRecorder record.EventRecorder) *OvnNode {
+func NewNode(kubeClient kubernetes.Interface, exec util.ExecHelper, wf *factory.WatchFactory, name string, stopChan chan struct{}, eventRecorder record.EventRecorder) *OvnNode {
 	return &OvnNode{
 		name:         name,
 		Kube:         &kube.Kube{KClient: kubeClient},
+		exec:         exec,
 		watchFactory: wf,
 		stopChan:     stopChan,
 		recorder:     eventRecorder,
 	}
 }
 
-func setupOVNNode(node *kapi.Node) error {
+func setupOVNNode(exec util.ExecHelper, node *kapi.Node) error {
 	var err error
 
 	encapIP := config.Default.EncapIP
@@ -62,7 +63,7 @@ func setupOVNNode(node *kapi.Node) error {
 		}
 	}
 
-	_, stderr, err := util.RunOVSVsctl("set",
+	_, stderr, err := exec.RunOVSVsctl("set",
 		"Open_vSwitch",
 		".",
 		fmt.Sprintf("external_ids:ovn-encap-type=%s", config.Default.EncapType),
@@ -79,11 +80,11 @@ func setupOVNNode(node *kapi.Node) error {
 	}
 	// If EncapPort is not the default tell sbdb to use specified port.
 	if config.Default.EncapPort != config.DefaultEncapPort {
-		systemID, err := util.GetNodeChassisID()
+		systemID, err := util.GetNodeChassisID(exec)
 		if err != nil {
 			return err
 		}
-		uuid, _, err := util.RunOVNSbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "Encap",
+		uuid, _, err := exec.RunOVNSbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "Encap",
 			fmt.Sprintf("chassis_name=%s", systemID))
 		if err != nil {
 			return err
@@ -91,7 +92,7 @@ func setupOVNNode(node *kapi.Node) error {
 		if len(uuid) == 0 {
 			return fmt.Errorf("unable to find encap uuid to set geneve port for chassis %s", systemID)
 		}
-		_, stderr, errSet := util.RunOVNSbctl("set", "encap", uuid,
+		_, stderr, errSet := exec.RunOVNSbctl("set", "encap", uuid,
 			fmt.Sprintf("options:dst_port=%d", config.Default.EncapPort),
 		)
 		if errSet != nil {
@@ -101,54 +102,46 @@ func setupOVNNode(node *kapi.Node) error {
 	return nil
 }
 
-func isOVNControllerReady(name string) (bool, error) {
-	runDir := util.GetOvnRunDir()
-
-	pid, err := ioutil.ReadFile(runDir + "ovn-controller.pid")
-	if err != nil {
-		return false, fmt.Errorf("unknown pid for ovn-controller process: %v", err)
-	}
-
-	err = wait.PollImmediate(500*time.Millisecond, 60*time.Second, func() (bool, error) {
-		ctlFile := runDir + fmt.Sprintf("ovn-controller.%s.ctl", strings.TrimSuffix(string(pid), "\n"))
-		ret, _, err := util.RunOVSAppctl("-t", ctlFile, "connection-status")
+func (n *OvnNode) isOVNControllerReady() (bool, error) {
+	err := wait.PollImmediate(500*time.Millisecond, 60*time.Second, func() (bool, error) {
+		ret, _, err := n.exec.RunOVNControllerAppCtl("connection-status")
 		if err == nil {
-			klog.Infof("Node %s connection status = %s", name, ret)
+			klog.Infof("Node %s connection status = %s", n.name, ret)
 			return ret == "connected", nil
 		}
 		return false, err
 	})
 	if err != nil {
-		return false, fmt.Errorf("timed out waiting sbdb for node %s: %v", name, err)
+		return false, fmt.Errorf("timed out waiting sbdb for node %s: %v", n.name, err)
 	}
 
 	err = wait.PollImmediate(500*time.Millisecond, 60*time.Second, func() (bool, error) {
-		_, _, err := util.RunOVSVsctl("--", "br-exists", "br-int")
+		_, _, err := n.exec.RunOVSVsctl("--", "br-exists", "br-int")
 		if err != nil {
 			return false, nil
 		}
 		return true, nil
 	})
 	if err != nil {
-		return false, fmt.Errorf("timed out checking whether br-int exists or not on node %s: %v", name, err)
+		return false, fmt.Errorf("timed out checking whether br-int exists or not on node %s: %v", n.name, err)
 	}
 
 	err = wait.PollImmediate(500*time.Millisecond, 60*time.Second, func() (bool, error) {
-		stdout, _, err := util.RunOVSOfctl("dump-aggregate", "br-int")
+		stdout, _, err := n.exec.RunOVSOfctl("dump-aggregate", "br-int")
 		if err != nil {
 			klog.V(5).Infof("Error dumping aggregate flows: %v "+
-				"for node: %s", err, name)
+				"for node: %s", err, n.name)
 			return false, nil
 		}
 		ret := strings.Contains(stdout, "flow_count=0")
 		if ret {
 			klog.V(5).Infof("Got a flow count of 0 when "+
-				"dumping flows for node: %s", name)
+				"dumping flows for node: %s", n.name)
 		}
 		return !ret, nil
 	})
 	if err != nil {
-		return false, fmt.Errorf("timed out dumping br-int flow entries for node %s: %v", name, err)
+		return false, fmt.Errorf("timed out dumping br-int flow entries for node %s: %v", n.name, err)
 	}
 
 	return true, nil
@@ -177,7 +170,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	if node, err = n.Kube.GetNode(n.name); err != nil {
 		return fmt.Errorf("error retrieving node %s: %v", n.name, err)
 	}
-	err = setupOVNNode(node)
+	err = setupOVNNode(n.exec, node)
 	if err != nil {
 		return err
 	}
@@ -201,7 +194,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 
 	klog.Infof("Node %s ready for ovn initialization with subnet %s", n.name, util.JoinIPNets(subnets, ","))
 
-	if _, err = isOVNControllerReady(n.name); err != nil {
+	if _, err = n.isOVNControllerReady(); err != nil {
 		return err
 	}
 
@@ -234,6 +227,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		factory := n.watchFactory.GetFactory()
 		nodeController, err := honode.NewNode(
 			n.Kube,
+			n.exec,
 			n.name,
 			factory.Core().V1().Nodes().Informer(),
 			factory.Core().V1().Pods().Informer(),
@@ -254,7 +248,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	}
 
 	// start health check to ensure there are no stale OVS internal ports
-	go checkForStaleOVSInterfaces(n.stopChan)
+	go checkForStaleOVSInterfaces(n.exec, n.stopChan)
 
 	confFile := filepath.Join(config.CNI.ConfDir, config.CNIConfFileName)
 	_, err = os.Stat(confFile)

@@ -73,6 +73,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 		stopChan chan struct{}
 		wg       *sync.WaitGroup
 		fexec    *ovntest.FakeExec
+		exec     util.ExecHelper
 	)
 
 	BeforeEach(func() {
@@ -85,7 +86,9 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 		stopChan = make(chan struct{})
 		wg = &sync.WaitGroup{}
 		fexec = ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
+
+		var err error
+		exec, err = util.NewExecHelper(fexec)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -117,6 +120,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 
 			m, err := NewMaster(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -183,12 +187,14 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 
 			_, err := config.InitConfig(ctx, fexec, nil)
 			Expect(err).NotTo(HaveOccurred())
+
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 			m, err := NewMaster(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -257,6 +263,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 
 			_, err := config.InitConfig(ctx, fexec, nil)
 			Expect(err).NotTo(HaveOccurred())
+
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 
@@ -265,6 +272,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 			m, err := NewMaster(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -327,6 +335,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 			m, err := NewMaster(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -410,7 +419,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				&v1.NodeList{Items: []v1.Node{newTestNode(nodeName, "linux", nodeSubnet, "", nodeHOMAC)}},
 			}...)
 
-			_, err := config.InitConfig(ctx, nil, nil)
+			fexec := ovntest.NewFakeExec()
+			_, err := config.InitConfig(ctx, fexec, nil)
+			Expect(err).NotTo(HaveOccurred())
+			exec, err := util.NewExecHelper(fexec)
 			Expect(err).NotTo(HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
@@ -418,6 +430,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 			m, err := NewMaster(
 				&kube.Kube{KClient: fakeClient},
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),
@@ -502,6 +515,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			addLinuxNodeCommands(fexec, nodeHOMAC, nodeName, nodeHOIP)
 			_, err := config.InitConfig(ctx, nil, nil)
 			Expect(err).NotTo(HaveOccurred())
+
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			k := &kube.Kube{KClient: fakeClient}
@@ -509,6 +523,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 			m, err := NewMaster(
 				k,
+				exec,
 				f.Core().V1().Nodes().Informer(),
 				f.Core().V1().Namespaces().Informer(),
 				f.Core().V1().Pods().Informer(),

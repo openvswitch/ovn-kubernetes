@@ -1372,13 +1372,16 @@ var _ = Describe("OVN NetworkPolicy Low-Level Operations", func() {
 	var (
 		fExec     *ovntest.FakeExec
 		asFactory *fakeAddressSetFactory
+		exec      util.ExecHelper
 	)
 
 	BeforeEach(func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
+
+		var err error
 		fExec = ovntest.NewLooseCompareFakeExec()
-		err := util.SetExec(fExec)
+		exec, err = util.NewExecHelper(fExec)
 		Expect(err).NotTo(HaveOccurred())
 
 		asFactory = newFakeAddressSetFactory()
@@ -1400,7 +1403,7 @@ var _ = Describe("OVN NetworkPolicy Low-Level Operations", func() {
 			},
 		}
 
-		gp := newGressPolicy(knet.PolicyTypeIngress, 0, policy.Namespace, policy.Name)
+		gp := newGressPolicy(exec, knet.PolicyTypeIngress, 0, policy.Namespace, policy.Name)
 		err := gp.ensurePeerAddressSet(asFactory)
 		Expect(err).NotTo(HaveOccurred())
 		asName := getIPv4ASName(gp.peerAddressSet.GetName())

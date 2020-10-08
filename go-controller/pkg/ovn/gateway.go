@@ -40,7 +40,7 @@ const (
 
 func (ovn *Controller) getOvnGateways() ([]string, string, error) {
 	// Return all created gateways.
-	out, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	out, stderr, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=name", "find",
 		"logical_router",
 		"options:chassis!=null")
@@ -48,13 +48,13 @@ func (ovn *Controller) getOvnGateways() ([]string, string, error) {
 }
 
 func (ovn *Controller) getGatewayPhysicalIPs(gatewayRouter string) ([]string, error) {
-	physicalIPs, _, err := util.RunOVNNbctl("get", "logical_router",
+	physicalIPs, _, err := ovn.exec.RunOVNNbctl("get", "logical_router",
 		gatewayRouter, "external_ids:physical_ips")
 	if err == nil {
 		return strings.Split(physicalIPs, ","), nil
 	}
 
-	physicalIP, _, err := util.RunOVNNbctl("get", "logical_router",
+	physicalIP, _, err := ovn.exec.RunOVNNbctl("get", "logical_router",
 		gatewayRouter, "external_ids:physical_ip")
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func (ovn *Controller) getGatewayPhysicalIPs(gatewayRouter string) ([]string, er
 
 func (ovn *Controller) getGatewayLoadBalancer(gatewayRouter string, protocol kapi.Protocol) (string, error) {
 	externalIDKey := string(protocol) + "_lb_gateway_router"
-	loadBalancer, _, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	loadBalancer, _, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "load_balancer",
 		"external_ids:"+externalIDKey+"="+
 			gatewayRouter)
@@ -167,8 +167,8 @@ func (ovn *Controller) deleteExternalVIPs(service *kapi.Service, svcPort kapi.Se
 }
 
 // getGatewayLoadBalancers find TCP, SCTP, UDP load-balancers from gateway router.
-func getGatewayLoadBalancers(gatewayRouter string) (string, string, string, error) {
-	lbTCP, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+func getGatewayLoadBalancers(exec util.ExecHelper, gatewayRouter string) (string, string, string, error) {
+	lbTCP, stderr, err := exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "load_balancer",
 		"external_ids:TCP_lb_gateway_router="+gatewayRouter)
 	if err != nil {
@@ -176,7 +176,7 @@ func getGatewayLoadBalancers(gatewayRouter string) (string, string, string, erro
 			"load balancer, stderr: %q, error: %v", gatewayRouter, stderr, err)
 	}
 
-	lbUDP, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	lbUDP, stderr, err := exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "load_balancer",
 		"external_ids:UDP_lb_gateway_router="+gatewayRouter)
 	if err != nil {
@@ -184,7 +184,7 @@ func getGatewayLoadBalancers(gatewayRouter string) (string, string, string, erro
 			"load balancer, stderr: %q, error: %v", gatewayRouter, stderr, err)
 	}
 
-	lbSCTP, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	lbSCTP, stderr, err := exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "load_balancer",
 		"external_ids:SCTP_lb_gateway_router="+gatewayRouter)
 	if err != nil {

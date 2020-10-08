@@ -47,7 +47,7 @@ func TestGetNodeChassisID(t *testing.T) {
 	// below is defined in ovs.go
 	runCmdExecRunner = mockExecRunner
 	// note runner is defined in ovs.go file
-	runner = &execHelper{exec: mockKexecIface}
+	runner := &execHelper{exec: mockKexecIface}
 
 	tests := []struct {
 		desc                    string
@@ -102,7 +102,7 @@ func TestGetNodeChassisID(t *testing.T) {
 			}
 			ifaceCall.Once()
 
-			ret, e := GetNodeChassisID()
+			ret, e := GetNodeChassisID(runner)
 			if tc.errExpected {
 				assert.Error(t, e)
 			} else {
@@ -121,7 +121,7 @@ func TestUpdateNodeSwitchExcludeIPs(t *testing.T) {
 	// below is defined in ovs.go
 	runCmdExecRunner = mockExecRunner
 	// note runner is defined in ovs.go file
-	runner = &execHelper{exec: mockKexecIface}
+	runner := &execHelper{exec: mockKexecIface}
 
 	tests := []struct {
 		desc                    string
@@ -264,10 +264,10 @@ func TestUpdateNodeSwitchExcludeIPs(t *testing.T) {
 			var e error
 			if tc.setCfgHybridOvlyEnabled {
 				config.HybridOverlay.Enabled = true
-				e = UpdateNodeSwitchExcludeIPs(tc.inpNodeName, ipnet)
+				e = UpdateNodeSwitchExcludeIPs(runner, tc.inpNodeName, ipnet)
 				config.HybridOverlay.Enabled = false
 			} else {
-				e = UpdateNodeSwitchExcludeIPs(tc.inpNodeName, ipnet)
+				e = UpdateNodeSwitchExcludeIPs(runner, tc.inpNodeName, ipnet)
 			}
 
 			if tc.errExpected {

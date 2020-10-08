@@ -26,7 +26,8 @@ var OvsExporterCommand = cli.Command{
 			bindAddress = "0.0.0.0:9310"
 		}
 
-		if err := util.SetExec(kexec.New()); err != nil {
+		exec, err := util.NewExecHelper(kexec.New())
+		if err != nil {
 			return err
 		}
 
@@ -34,10 +35,9 @@ var OvsExporterCommand = cli.Command{
 		mux.Handle("/metrics", promhttp.Handler())
 
 		// register ovs metrics that will be served off of /metrics path
-		metrics.RegisterOvsMetrics()
+		metrics.RegisterOvsMetrics(exec)
 
-		err := http.ListenAndServe(bindAddress, mux)
-		if err != nil {
+		if err := http.ListenAndServe(bindAddress, mux); err != nil {
 			klog.Exitf("Starting metrics server failed: %v", err)
 		}
 		return nil

@@ -3,7 +3,7 @@ package ovndbmanager
 import (
 	"errors"
 	"os"
-	"os/exec"
+	osexec "os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,20 +17,20 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 )
 
-func RunDBChecker(stopCh <-chan struct{}) {
+func RunDBChecker(exec util.ExecHelper, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	klog.Info("Starting DB Checker to ensure cluster membership and DB consistency")
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ensureOvnDBState(util.OvnNbdbLocation, stopCh)
+		ensureOvnDBState(exec, util.OvnNbdbLocation, stopCh)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ensureOvnDBState(util.OvnSbdbLocation, stopCh)
+		ensureOvnDBState(exec, util.OvnSbdbLocation, stopCh)
 	}()
 	<-stopCh
 	klog.Info("Shutting down db checker")
@@ -38,15 +38,15 @@ func RunDBChecker(stopCh <-chan struct{}) {
 	klog.Info("Shut down db checker")
 }
 
-func ensureOvnDBState(db string, stopCh <-chan struct{}) {
+func ensureOvnDBState(exec util.ExecHelper, db string, stopCh <-chan struct{}) {
 	ticker := time.NewTicker(60 * time.Second)
 	klog.Infof("Starting ensure routine for Raft db: %s", db)
-	_, _, err := util.RunOVSDBTool("db-is-standalone", db)
+	_, _, err := exec.RunOVSDBTool("db-is-standalone", db)
 	if err == nil {
 		klog.Info("The db is running in standalone mode")
 		return
 	} else {
-		var ee *exec.ExitError
+		var ee *osexec.ExitError
 		if errors.As(err, &ee) {
 			klog.Infof("Exit code for the db-is-standalone: %v", ee.ExitCode())
 			if ee.ExitCode() != 2 {
@@ -61,9 +61,9 @@ func ensureOvnDBState(db string, stopCh <-chan struct{}) {
 		select {
 		case <-ticker.C:
 			klog.V(5).Infof("Ensure routines for Raft db: %s kicked off by ticker", db)
-			ensureLocalRaftServerID(db)
-			ensureClusterRaftMembership(db)
-			ensureDBHealth(db)
+			ensureLocalRaftServerID(exec, db)
+			ensureClusterRaftMembership(exec, db)
+			ensureDBHealth(exec, db)
 		case <-stopCh:
 			ticker.Stop()
 			return
@@ -72,19 +72,19 @@ func ensureOvnDBState(db string, stopCh <-chan struct{}) {
 }
 
 // ensureLocalRaftServerID is used to ensure there is no stale member in the Raft cluster with our address
-func ensureLocalRaftServerID(db string) {
+func ensureLocalRaftServerID(exec util.ExecHelper, db string) {
 	var dbName string
 	var appCtl func(args ...string) (string, string, error)
 
 	if strings.Contains(db, "ovnnb") {
 		dbName = "OVN_Northbound"
-		appCtl = util.RunOVNNBAppCtl
+		appCtl = exec.RunOVNNBAppCtl
 	} else {
 		dbName = "OVN_Southbound"
-		appCtl = util.RunOVNSBAppCtl
+		appCtl = exec.RunOVNSBAppCtl
 	}
 
-	out, stderr, err := util.RunOVSDBTool("db-sid", db)
+	out, stderr, err := exec.RunOVSDBTool("db-sid", db)
 	if err != nil {
 		klog.Warningf("Unable to get db server ID for: %s, stderr: %v, err: %v", db, stderr, err)
 		return
@@ -128,7 +128,7 @@ func ensureLocalRaftServerID(db string) {
 }
 
 // ensureClusterRaftMembership ensures there are no unknown members in the current Raft cluster
-func ensureClusterRaftMembership(db string) {
+func ensureClusterRaftMembership(exec util.ExecHelper, db string) {
 	var knownMembers, knownServers []string
 
 	var dbName string
@@ -136,11 +136,11 @@ func ensureClusterRaftMembership(db string) {
 
 	if strings.Contains(db, "ovnnb") {
 		dbName = "OVN_Northbound"
-		appCtl = util.RunOVNNBAppCtl
+		appCtl = exec.RunOVNNBAppCtl
 		knownMembers = strings.Split(config.OvnNorth.Address, ",")
 	} else {
 		dbName = "OVN_Southbound"
-		appCtl = util.RunOVNSBAppCtl
+		appCtl = exec.RunOVNSBAppCtl
 		knownMembers = strings.Split(config.OvnSouth.Address, ",")
 	}
 	for _, knownMember := range knownMembers {
@@ -193,8 +193,8 @@ func ensureClusterRaftMembership(db string) {
 
 // ensureDBHealth ensures that if the db is clustered, it is healthy by calling the cluster-check command
 // if the clustered db is corrupt, the db will be deleted and kube-master pod needs to be started again.
-func ensureDBHealth(db string) {
-	stdout, stderr, err := util.RunOVSDBTool("check-cluster", db)
+func ensureDBHealth(exec util.ExecHelper, db string) {
+	stdout, stderr, err := exec.RunOVSDBTool("check-cluster", db)
 	if err != nil {
 		// backup the db by renaming it and then stop the nb/sb ovsdb process.
 		klog.Fatalf("Error occured during checking of clustered db "+
@@ -213,10 +213,10 @@ func ensureDBHealth(db string) {
 			var appCtl func(args ...string) (string, string, error)
 			if strings.Contains(db, "ovnnb") {
 				dbName = "OVN_Northbound"
-				appCtl = util.RunOVNNBAppCtl
+				appCtl = exec.RunOVNNBAppCtl
 			} else {
 				dbName = "OVN_Southbound"
-				appCtl = util.RunOVNSBAppCtl
+				appCtl = exec.RunOVNSBAppCtl
 			}
 			_, stderr, err := appCtl("exit")
 			if err != nil {

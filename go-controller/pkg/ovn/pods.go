@@ -45,7 +45,7 @@ func (oc *Controller) syncPods(pods []interface{}) {
 	}
 
 	// get the list of logical ports from OVN
-	output, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	output, stderr, err := oc.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=name", "find", "logical_switch_port", "external_ids:pod=true")
 	if err != nil {
 		klog.Errorf("Error in obtaining list of logical ports, "+
@@ -58,7 +58,7 @@ func (oc *Controller) syncPods(pods []interface{}) {
 		if _, ok := expectedLogicalPorts[existingPort]; !ok {
 			// not found, delete this logical port
 			klog.Infof("Stale logical port found: %s. This logical port will be deleted.", existingPort)
-			out, stderr, err := util.RunOVNNbctl("--if-exists", "lsp-del",
+			out, stderr, err := oc.exec.RunOVNNbctl("--if-exists", "lsp-del",
 				existingPort)
 			if err != nil {
 				klog.Errorf("Error in deleting pod's logical port "+
@@ -88,7 +88,7 @@ func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
 
 	// Remove the port from the default deny multicast policy
 	if oc.multicastSupport {
-		if err := podDeleteDefaultDenyMulticastPolicy(portInfo); err != nil {
+		if err := oc.podDeleteDefaultDenyMulticastPolicy(portInfo); err != nil {
 			klog.Errorf(err.Error())
 		}
 	}
@@ -462,7 +462,7 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 
 	// Enforce the default deny multicast policy
 	if oc.multicastSupport {
-		if err = podAddDefaultDenyMulticastPolicy(portInfo); err != nil {
+		if err = oc.podAddDefaultDenyMulticastPolicy(portInfo); err != nil {
 			return err
 		}
 	}

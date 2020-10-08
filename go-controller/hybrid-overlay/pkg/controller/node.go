@@ -73,6 +73,7 @@ func podChanged(old, new interface{}) bool {
 // NewNode Returns a new Node
 func NewNode(
 	kube kube.Interface,
+	exec util.ExecHelper,
 	nodeName string,
 	nodeInformer cache.SharedIndexInformer,
 	podInformer cache.SharedIndexInformer,
@@ -82,7 +83,7 @@ func NewNode(
 	nodeLister := listers.NewNodeLister(nodeInformer.GetIndexer())
 	podLister := listers.NewPodLister(podInformer.GetIndexer())
 
-	controller, err := newNodeController(kube, nodeName, nodeLister, podLister)
+	controller, err := newNodeController(kube, exec, nodeName, nodeLister, podLister)
 	if err != nil {
 		return nil, err
 	}

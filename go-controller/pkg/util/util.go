@@ -56,8 +56,8 @@ func GetLegacyK8sMgmtIntfName(nodeName string) string {
 }
 
 // GetNodeChassisID returns the machine's OVN chassis ID
-func GetNodeChassisID() (string, error) {
-	chassisID, stderr, err := RunOVSVsctl("--if-exists", "get",
+func GetNodeChassisID(exec ExecHelper) (string, error) {
+	chassisID, stderr, err := exec.RunOVSVsctl("--if-exists", "get",
 		"Open_vSwitch", ".", "external_ids:system-id")
 	if err != nil {
 		klog.Errorf("No system-id configured in the local host, "+
@@ -78,7 +78,7 @@ var updateNodeSwitchLock sync.Mutex
 // is added to the logical switch's exclude_ips. This prevents ovn-northd log
 // spam about duplicate IP addresses.
 // See https://github.com/ovn-org/ovn-kubernetes/pull/779
-func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
+func UpdateNodeSwitchExcludeIPs(exec ExecHelper, nodeName string, subnet *net.IPNet) error {
 	if utilnet.IsIPv6CIDR(subnet) {
 		// We don't exclude any IPs in IPv6
 		return nil
@@ -87,7 +87,7 @@ func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
 	updateNodeSwitchLock.Lock()
 	defer updateNodeSwitchLock.Unlock()
 
-	stdout, stderr, err := RunOVNNbctl("lsp-list", nodeName)
+	stdout, stderr, err := exec.RunOVNNbctl("lsp-list", nodeName)
 	if err != nil {
 		return fmt.Errorf("failed to list logical switch %q ports: stderr: %q, error: %v", nodeName, stderr, err)
 	}
@@ -130,7 +130,7 @@ func UpdateNodeSwitchExcludeIPs(nodeName string, subnet *net.IPNet) error {
 		args = []string{"--", "--if-exists", "set", "logical_switch", nodeName, "other-config:exclude_ips=" + excludeIPs}
 	}
 
-	_, stderr, err = RunOVNNbctl(args...)
+	_, stderr, err = exec.RunOVNNbctl(args...)
 	if err != nil {
 		return fmt.Errorf("failed to set node %q switch exclude_ips, "+
 			"stderr: %q, error: %v", nodeName, stderr, err)

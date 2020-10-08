@@ -15,6 +15,8 @@ import (
 )
 
 type gressPolicy struct {
+	exec util.ExecHelper
+
 	policyNamespace string
 	policyName      string
 	policyType      knet.PolicyType
@@ -61,8 +63,9 @@ func (pp *portPolicy) getL4Match() (string, error) {
 	return "", fmt.Errorf("unknown port protocol %v", pp.protocol)
 }
 
-func newGressPolicy(policyType knet.PolicyType, idx int, namespace, name string) *gressPolicy {
+func newGressPolicy(exec util.ExecHelper, policyType knet.PolicyType, idx int, namespace, name string) *gressPolicy {
 	return &gressPolicy{
+		exec:              exec,
 		policyNamespace:   namespace,
 		policyName:        name,
 		policyType:        policyType,
@@ -294,7 +297,7 @@ func (gp *gressPolicy) addACLAllow(match, l4Match, portGroupUUID string, ipBlock
 		action = "allow"
 	}
 
-	uuid, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	uuid, stderr, err := gp.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "ACL",
 		fmt.Sprintf("external-ids:l4Match=\"%s\"", l4Match),
 		fmt.Sprintf("external-ids:ipblock_cidr=%t", ipBlockCidr),
@@ -312,7 +315,7 @@ func (gp *gressPolicy) addACLAllow(match, l4Match, portGroupUUID string, ipBlock
 		return nil
 	}
 
-	_, stderr, err = util.RunOVNNbctl("--id=@acl", "create",
+	_, stderr, err = gp.exec.RunOVNNbctl("--id=@acl", "create",
 		"acl", fmt.Sprintf("priority=%s", defaultAllowPriority),
 		fmt.Sprintf("direction=%s", direction), match,
 		fmt.Sprintf("action=%s", action),
@@ -334,7 +337,7 @@ func (gp *gressPolicy) addACLAllow(match, l4Match, portGroupUUID string, ipBlock
 
 // modifyACLAllow updates an "allow" ACL with a new match
 func (gp *gressPolicy) modifyACLAllow(oldMatch, newMatch string) error {
-	uuid, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	uuid, stderr, err := gp.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find", "ACL", oldMatch,
 		fmt.Sprintf("external-ids:namespace=%s", gp.policyNamespace),
 		fmt.Sprintf("external-ids:policy=%s", gp.policyName),
@@ -350,7 +353,7 @@ func (gp *gressPolicy) modifyACLAllow(oldMatch, newMatch string) error {
 	}
 
 	// We already have an ACL. We will update it.
-	if _, stderr, err = util.RunOVNNbctl("set", "acl", uuid, newMatch); err != nil {
+	if _, stderr, err = gp.exec.RunOVNNbctl("set", "acl", uuid, newMatch); err != nil {
 		return fmt.Errorf("failed to modify the allow-from rule for "+
 			"namespace=%s, policy=%s, stderr: %q (%v)",
 			gp.policyNamespace, gp.policyName, stderr, err)

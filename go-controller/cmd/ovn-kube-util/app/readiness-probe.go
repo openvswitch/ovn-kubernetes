@@ -11,7 +11,7 @@ import (
 	kexec "k8s.io/utils/exec"
 )
 
-type readinessFunc func(string) error
+type readinessFunc func(util.ExecHelper, string) error
 
 var callbacks = map[string]readinessFunc{
 	"ovn-controller": ovnControllerReadiness,
@@ -25,9 +25,9 @@ var callbacks = map[string]readinessFunc{
 	"ovnsb-db-raft":  ovnSBDBRaftReadiness,
 }
 
-func ovnControllerReadiness(target string) error {
+func ovnControllerReadiness(exec util.ExecHelper, target string) error {
 	// Check if ovn-controller is connected to OVN SB
-	output, _, err := util.RunOVSAppctlWithTimeout(5, "-t", target, "connection-status")
+	output, _, err := exec.RunOVSAppctlWithTimeout(5, "-t", target, "connection-status")
 	if err != nil {
 		return fmt.Errorf("failed getting connection status of %q: (%v)", target, err)
 	} else if output != "connected" {
@@ -41,7 +41,7 @@ func ovnControllerReadiness(target string) error {
 		return fmt.Errorf("failed to get pid for osvdb-server process: %v", err)
 	}
 	ctlFile := fmt.Sprintf("/var/run/openvswitch/ovsdb-server.%s.ctl", strings.Trim(string(ovsdbPid), " \n"))
-	_, _, err = util.RunOVSAppctlWithTimeout(5, "-t", ctlFile, "ovsdb-server/list-dbs")
+	_, _, err = exec.RunOVSAppctlWithTimeout(5, "-t", ctlFile, "ovsdb-server/list-dbs")
 	if err != nil {
 		return fmt.Errorf("failed retrieving list of databases from ovsdb-server: %v", err)
 	}
@@ -51,24 +51,24 @@ func ovnControllerReadiness(target string) error {
 		return fmt.Errorf("failed to get pid for ovs-vswitchd process: %v", err)
 	}
 	ctlFile = fmt.Sprintf("/var/run/openvswitch/ovs-vswitchd.%s.ctl", strings.Trim(string(ovsPid), " \n"))
-	_, _, err = util.RunOVSAppctlWithTimeout(5, "-t", ctlFile, "ofproto/list")
+	_, _, err = exec.RunOVSAppctlWithTimeout(5, "-t", ctlFile, "ofproto/list")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve ofproto instances from ovs-vswitchd: %v", err)
 	}
 	return nil
 }
 
-func ovnNBDBReadiness(target string) error {
+func ovnNBDBReadiness(exec util.ExecHelper, target string) error {
 	var err error
 	var output string
 
 	// 1. Check if the OVN NB process is running.
 	// 2. Check if OVN NB process is listening on the port that it is supposed to
-	_, _, err = util.RunOVNNBAppCtl("--timeout=5", "ovsdb-server/list-dbs")
+	_, _, err = exec.RunOVNNBAppCtl("--timeout=5", "ovsdb-server/list-dbs")
 	if err != nil {
 		return fmt.Errorf("failed connecting to %q: (%v)", target, err)
 	}
-	output, _, err = util.RunOVNNbctlWithTimeout(5, "--data=bare", "--no-heading", "--columns=target",
+	output, _, err = exec.RunOVNNbctlWithTimeout(5, "--data=bare", "--no-heading", "--columns=target",
 		"find", "connection", "target!=_")
 	if err != nil {
 		return fmt.Errorf("%s is not ready: (%v)", target, err)
@@ -80,17 +80,17 @@ func ovnNBDBReadiness(target string) error {
 	return fmt.Errorf("%s is not setup for passive connection: %v", target, output)
 }
 
-func ovnSBDBReadiness(target string) error {
+func ovnSBDBReadiness(exec util.ExecHelper, target string) error {
 	var err error
 	var output string
 
 	// 1. Check if the OVN SB process is running.
 	// 2. Check if OVN SB process is listening on the port that it is supposed to
-	_, _, err = util.RunOVNSBAppCtl("--timeout=5", "ovsdb-server/list-dbs")
+	_, _, err = exec.RunOVNSBAppCtl("--timeout=5", "ovsdb-server/list-dbs")
 	if err != nil {
 		return fmt.Errorf("failed connecting to %q: (%v)", target, err)
 	}
-	output, _, err = util.RunOVNSbctlWithTimeout(5, "--data=bare", "--no-heading", "--columns=target",
+	output, _, err = exec.RunOVNSbctlWithTimeout(5, "--data=bare", "--no-heading", "--columns=target",
 		"find", "connection", "target!=_")
 	if err != nil {
 		return fmt.Errorf("%s is not ready: (%v)", target, err)
@@ -102,35 +102,35 @@ func ovnSBDBReadiness(target string) error {
 	return fmt.Errorf("%s is not setup for passive connection: %v", target, output)
 }
 
-func ovnNorthdReadiness(target string) error {
-	_, _, err := util.RunOVNAppctlWithTimeout(5, "-t", target, "version")
+func ovnNorthdReadiness(exec util.ExecHelper, target string) error {
+	_, _, err := exec.RunOVNAppctlWithTimeout(5, "-t", target, "version")
 	if err != nil {
 		return fmt.Errorf("failed to get version from %s: (%v)", target, err)
 	}
 	return nil
 }
 
-func ovnNbCtldReadiness(target string) error {
-	_, _, err := util.RunOVNAppctlWithTimeout(5, "-t", "ovn-nbctl", "version")
+func ovnNbCtldReadiness(exec util.ExecHelper, target string) error {
+	_, _, err := exec.RunOVNAppctlWithTimeout(5, "-t", "ovn-nbctl", "version")
 	if err != nil {
 		return fmt.Errorf("failed to get version from %s: (%v)", target, err)
 	}
 	return nil
 }
 
-func ovsDaemonsReadiness(target string) error {
-	_, _, err := util.RunOVSAppctlWithTimeout(5, "-t", "ovsdb-server", "ovsdb-server/list-dbs")
+func ovsDaemonsReadiness(exec util.ExecHelper, target string) error {
+	_, _, err := exec.RunOVSAppctlWithTimeout(5, "-t", "ovsdb-server", "ovsdb-server/list-dbs")
 	if err != nil {
 		return fmt.Errorf("failed retrieving list of databases from ovsdb-server: %v", err)
 	}
-	_, _, err = util.RunOVSAppctlWithTimeout(5, "-t", "ovs-vswitchd", "ofproto/list")
+	_, _, err = exec.RunOVSAppctlWithTimeout(5, "-t", "ovs-vswitchd", "ofproto/list")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve ofproto instances from ovs-vswitchd: %v", err)
 	}
 	return nil
 }
 
-func ovnNodeReadiness(target string) error {
+func ovnNodeReadiness(exec util.ExecHelper, target string) error {
 	// Inside the pod we always use `/etc/cni/net.d` folder even if kubelet
 	// was started with a different conf directory
 	confFile := "/etc/cni/net.d/10-ovn-kubernetes.conf"
@@ -141,8 +141,8 @@ func ovnNodeReadiness(target string) error {
 	return nil
 }
 
-func ovnNBDBRaftReadiness(target string) error {
-	status, err := util.GetOVNDBServerInfo(15, "nb", "OVN_Northbound")
+func ovnNBDBRaftReadiness(exec util.ExecHelper, target string) error {
+	status, err := util.GetOVNDBServerInfo(exec, 15, "nb", "OVN_Northbound")
 	if err != nil {
 		return err
 	}
@@ -152,8 +152,8 @@ func ovnNBDBRaftReadiness(target string) error {
 	return nil
 }
 
-func ovnSBDBRaftReadiness(target string) error {
-	status, err := util.GetOVNDBServerInfo(15, "sb", "OVN_Southbound")
+func ovnSBDBRaftReadiness(exec util.ExecHelper, target string) error {
+	status, err := util.GetOVNDBServerInfo(exec, 15, "sb", "OVN_Southbound")
 	if err != nil {
 		return err
 	}
@@ -176,11 +176,13 @@ var ReadinessProbeCommand = cli.Command{
 	},
 	Action: func(ctx *cli.Context) error {
 		target := ctx.String("target")
-		if err := util.SetExec(kexec.New()); err != nil {
+
+		exec, err := util.NewExecHelper(kexec.New())
+		if err != nil {
 			return err
 		}
 		if cbfunc, ok := callbacks[target]; ok {
-			return cbfunc(target)
+			return cbfunc(exec, target)
 		}
 		return fmt.Errorf("incorrect target specified")
 	},

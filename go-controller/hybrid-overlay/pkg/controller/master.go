@@ -30,6 +30,7 @@ import (
 // MasterController is the master hybrid overlay controller
 type MasterController struct {
 	kube                  kube.Interface
+	exec                  util.ExecHelper
 	allocator             *subnetallocator.SubnetAllocator
 	nodeEventHandler      informer.EventHandler
 	namespaceEventHandler informer.EventHandler
@@ -40,6 +41,7 @@ type MasterController struct {
 
 // NewMaster a new master controller that listens for node events
 func NewMaster(kube kube.Interface,
+	exec util.ExecHelper,
 	nodeInformer cache.SharedIndexInformer,
 	namespaceInformer cache.SharedIndexInformer,
 	podInformer cache.SharedIndexInformer,
@@ -50,6 +52,7 @@ func NewMaster(kube kube.Interface,
 
 	m := &MasterController{
 		kube:        kube,
+		exec:        exec,
 		allocator:   subnetallocator.NewSubnetAllocator(),
 		ovnNBClient: ovnNBClient,
 		ovnSBClient: ovnSBClient,
@@ -269,14 +272,14 @@ func (m *MasterController) handleOverlayPort(node *kapi.Node, annotator kube.Ann
 
 		var stderr string
 		// create / update lsps
-		_, stderr, err = util.RunOVNNbctl("--", "--may-exist", "lsp-add", node.Name, portName,
+		_, stderr, err = m.exec.RunOVNNbctl("--", "--may-exist", "lsp-add", node.Name, portName,
 			"--", "lsp-set-addresses", portName, portMAC.String())
 		if err != nil {
 			return fmt.Errorf("failed to add hybrid overlay port for node %s"+
 				", stderr:%s: %v", node.Name, stderr, err)
 		}
 		for _, subnet := range subnets {
-			if err := util.UpdateNodeSwitchExcludeIPs(node.Name, subnet); err != nil {
+			if err := util.UpdateNodeSwitchExcludeIPs(m.exec, node.Name, subnet); err != nil {
 				return err
 			}
 		}
@@ -295,7 +298,7 @@ func (m *MasterController) handleOverlayPort(node *kapi.Node, annotator kube.Ann
 func (m *MasterController) deleteOverlayPort(node *kapi.Node) {
 	klog.Infof("Removing node %s hybrid overlay port", node.Name)
 	portName := util.GetHybridOverlayPortName(node.Name)
-	_, _, _ = util.RunOVNNbctl("--", "--if-exists", "lsp-del", portName)
+	_, _, _ = m.exec.RunOVNNbctl("--", "--if-exists", "lsp-del", portName)
 }
 
 // AddNode handles node additions

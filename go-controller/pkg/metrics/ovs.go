@@ -261,8 +261,8 @@ var metricInterafceFirmwareVersion = prometheus.NewGaugeVec(prometheus.GaugeOpts
 	},
 )
 
-func getOvsVersionInfo() {
-	stdout, _, err := util.RunOVSVsctl("--version")
+func getOvsVersionInfo(exec util.ExecHelper) {
+	stdout, _, err := exec.RunOVSVsctl("--version")
 	if err == nil && strings.HasPrefix(stdout, "ovs-vsctl (Open vSwitch)") {
 		ovsVersion = strings.Fields(stdout)[3]
 	}
@@ -332,7 +332,7 @@ func ovsDatapathPortMetrics(output, datapath string) {
 
 // getOvsDatapaths gives list of datapaths
 // and updates the corresponding datapath metrics
-func getOvsDatapaths() (datapathsList []string, err error) {
+func getOvsDatapaths(exec util.ExecHelper) (datapathsList []string, err error) {
 	var stdout, stderr string
 
 	defer func() {
@@ -342,7 +342,7 @@ func getOvsDatapaths() (datapathsList []string, err error) {
 		}
 	}()
 
-	stdout, stderr, err = util.RunOVSDpctl("dump-dps")
+	stdout, stderr, err = exec.RunOVSDpctl("dump-dps")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get output of ovs-dpctl dump-dps "+
 			"stderr(%s) :(%v)", stderr, err)
@@ -363,7 +363,7 @@ func getOvsDatapaths() (datapathsList []string, err error) {
 	return datapathsList, nil
 }
 
-func setOvsDatapathMetrics(datapaths []string) (err error) {
+func setOvsDatapathMetrics(exec util.ExecHelper, datapaths []string) (err error) {
 	var stdout, stderr, datapathName string
 
 	defer func() {
@@ -374,7 +374,7 @@ func setOvsDatapathMetrics(datapaths []string) (err error) {
 	}()
 
 	for _, datapathName = range datapaths {
-		stdout, stderr, err = util.RunOVSDpctl("show", datapathName)
+		stdout, stderr, err = exec.RunOVSDpctl("show", datapathName)
 		if err != nil {
 			return fmt.Errorf("failed to get datapath stats for %s "+
 				"stderr(%s) :(%v)", datapathName, stderr, err)
@@ -405,16 +405,16 @@ func setOvsDatapathMetrics(datapaths []string) (err error) {
 }
 
 // ovsDatapathMetricsUpdate updates the ovs datapath metrics for every 30 sec
-func ovsDatapathMetricsUpdate() {
+func ovsDatapathMetricsUpdate(exec util.ExecHelper) {
 	for {
 		time.Sleep(30 * time.Second)
-		datapaths, err := getOvsDatapaths()
+		datapaths, err := getOvsDatapaths(exec)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 			continue
 		}
 
-		err = setOvsDatapathMetrics(datapaths)
+		err = setOvsDatapathMetrics(exec, datapaths)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 		}
@@ -423,8 +423,8 @@ func ovsDatapathMetricsUpdate() {
 
 // getOvsBridgeOpenFlowsCount returns the number of openflow flows
 // in an ovs-bridge
-func getOvsBridgeOpenFlowsCount(bridgeName string) float64 {
-	stdout, stderr, err := util.RunOVSOfctl("-t", "5", "dump-aggregate", bridgeName)
+func getOvsBridgeOpenFlowsCount(exec util.ExecHelper, bridgeName string) float64 {
+	stdout, stderr, err := exec.RunOVSOfctl("-t", "5", "dump-aggregate", bridgeName)
 	if err != nil {
 		klog.Errorf("Failed to get flow count for %s, stderr(%s): (%v)",
 			bridgeName, stderr, err)
@@ -449,7 +449,7 @@ type interfaceDetails struct {
 
 // getInterfaceToPortToBridgeMapping obtains the interface details
 // of to which port and bridge it belongs to.
-func getInterfaceToPortToBridgeMapping(portBridgeMap map[string]string) (interfacePortbridgeMap map[string]interfaceDetails,
+func getInterfaceToPortToBridgeMapping(exec util.ExecHelper, portBridgeMap map[string]string) (interfacePortbridgeMap map[string]interfaceDetails,
 	err error) {
 	var stdout, stderr string
 
@@ -460,7 +460,7 @@ func getInterfaceToPortToBridgeMapping(portBridgeMap map[string]string) (interfa
 		}
 	}()
 
-	stdout, stderr, err = util.RunOVSVsctl("--no-headings", "--data=bare",
+	stdout, stderr, err = exec.RunOVSVsctl("--no-headings", "--data=bare",
 		"--format=csv", "--columns=_uuid,name,interfaces", "list", "Port")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get output for ovs-vsctl list Port "+
@@ -489,7 +489,7 @@ func getInterfaceToPortToBridgeMapping(portBridgeMap map[string]string) (interfa
 
 // getOvsBridgeInfo obtains the (per Brdige port count) &
 // port to bridge mapping for each port
-func getOvsBridgeInfo() (bridgePortCount map[string]float64, portToBridgeMap map[string]string,
+func getOvsBridgeInfo(exec util.ExecHelper) (bridgePortCount map[string]float64, portToBridgeMap map[string]string,
 	err error) {
 	var stdout, stderr string
 
@@ -500,7 +500,7 @@ func getOvsBridgeInfo() (bridgePortCount map[string]float64, portToBridgeMap map
 		}
 	}()
 
-	stdout, stderr, err = util.RunOVSVsctl("--no-headings", "--data=bare",
+	stdout, stderr, err = exec.RunOVSVsctl("--no-headings", "--data=bare",
 		"--format=csv", "--columns=name,port", "list", "Bridge")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get output for ovs-vsctl list Bridge "+
@@ -529,10 +529,10 @@ func getOvsBridgeInfo() (bridgePortCount map[string]float64, portToBridgeMap map
 }
 
 // ovsBridgeMetricsUpdate updates bridgeMetrics & ovsInterface metrics for every 30sec
-func ovsBridgeMetricsUpdate() {
+func ovsBridgeMetricsUpdate(exec util.ExecHelper) {
 	for {
 		time.Sleep(30 * time.Second)
-		bridgePortCountMapping, portBridgeMapping, err := getOvsBridgeInfo()
+		bridgePortCountMapping, portBridgeMapping, err := getOvsBridgeInfo(exec)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 			continue
@@ -540,18 +540,18 @@ func ovsBridgeMetricsUpdate() {
 		for brName, nPorts := range bridgePortCountMapping {
 			metricOvsBridge.WithLabelValues(brName).Set(1)
 			metricOvsBridgePortsTotal.WithLabelValues(brName).Set(nPorts)
-			flowsCount := getOvsBridgeOpenFlowsCount(brName)
+			flowsCount := getOvsBridgeOpenFlowsCount(exec, brName)
 			metricOvsBridgeFlowsTotal.WithLabelValues(brName).Set(flowsCount)
 		}
 		metricOvsBridgeTotal.Set(float64(len(bridgePortCountMapping)))
 
-		interfaceToPortToBridgeMap, err := getInterfaceToPortToBridgeMapping(portBridgeMapping)
+		interfaceToPortToBridgeMap, err := getInterfaceToPortToBridgeMapping(exec, portBridgeMapping)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 			continue
 		}
 		// set ovs interface metrics.
-		err = ovsInterfaceMetricsUpdate(interfaceToPortToBridgeMap)
+		err = ovsInterfaceMetricsUpdate(exec, interfaceToPortToBridgeMap)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 		}
@@ -686,7 +686,7 @@ func setOvsInterfaceStatusFields(interfaceBridge, interfacePort, interfaceName, 
 
 // ovsInterfaceMetricsUpdate updates the ovs interface metrics
 // obtained from ovs-vsctl --columns=<fields> list interface
-func ovsInterfaceMetricsUpdate(interfaceInfo map[string]interfaceDetails) (err error) {
+func ovsInterfaceMetricsUpdate(exec util.ExecHelper, interfaceInfo map[string]interfaceDetails) (err error) {
 	interfaceColumnFields := []string{
 		"_uuid",
 		"name",
@@ -714,7 +714,7 @@ func ovsInterfaceMetricsUpdate(interfaceInfo map[string]interfaceDetails) (err e
 	}()
 
 	interfaceFieldsList := strings.Join(interfaceColumnFields, ",")
-	stdout, stderr, err = util.RunOVSVsctl("--no-headings", "--data=bare",
+	stdout, stderr, err = exec.RunOVSVsctl("--no-headings", "--data=bare",
 		"--format=csv", "--columns="+interfaceFieldsList, "list", "Interface")
 	if err != nil {
 		return fmt.Errorf("failed to get output for ovs-vsctl list Interface "+
@@ -773,7 +773,7 @@ func ovsInterfaceMetricsUpdate(interfaceInfo map[string]interfaceDetails) (err e
 
 // setOvsMemoryMetrics updates the handlers, revalidators
 // count from "ovs-appctl -t ovs-vswitchd memory/show" output.
-func setOvsMemoryMetrics() (err error) {
+func setOvsMemoryMetrics(exec util.ExecHelper) (err error) {
 	var stdout, stderr string
 
 	defer func() {
@@ -783,7 +783,7 @@ func setOvsMemoryMetrics() (err error) {
 		}
 	}()
 
-	stdout, stderr, err = util.RunOvsVswitchdAppCtl("memory/show")
+	stdout, stderr, err = exec.RunOvsVswitchdAppCtl("memory/show")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve memory/show output "+
 			"for ovs-vswitchd stderr(%s) :%v", stderr, err)
@@ -803,9 +803,9 @@ func setOvsMemoryMetrics() (err error) {
 	return nil
 }
 
-func ovsMemoryMetricsUpdate() {
+func ovsMemoryMetricsUpdate(exec util.ExecHelper) {
 	for {
-		err := setOvsMemoryMetrics()
+		err := setOvsMemoryMetrics(exec)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 		}
@@ -815,7 +815,7 @@ func ovsMemoryMetricsUpdate() {
 
 // setOvsHwOffloadMetrics obatains the hw-offlaod, tc-policy
 // ovs-vsctl list Open_vSwitch . and updates the corresponding metrics
-func setOvsHwOffloadMetrics() (err error) {
+func setOvsHwOffloadMetrics(exec util.ExecHelper) (err error) {
 	var stdout, stderr string
 
 	defer func() {
@@ -825,7 +825,7 @@ func setOvsHwOffloadMetrics() (err error) {
 		}
 	}()
 
-	stdout, stderr, err = util.RunOVSVsctl("--no-headings", "--data=bare",
+	stdout, stderr, err = exec.RunOVSVsctl("--no-headings", "--data=bare",
 		"--columns=other_config", "list", "Open_vSwitch", ".")
 	if err != nil {
 		return fmt.Errorf("failed to get output from ovs-vsctl list --columns=other_config"+
@@ -856,9 +856,9 @@ func setOvsHwOffloadMetrics() (err error) {
 	return nil
 }
 
-func ovsHwOffloadMetricsUpdate() {
+func ovsHwOffloadMetricsUpdate(exec util.ExecHelper) {
 	for {
-		err := setOvsHwOffloadMetrics()
+		err := setOvsHwOffloadMetrics(exec)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 		}
@@ -1121,9 +1121,9 @@ var ovsVswitchdCoverageShowMetricsMap = map[string]*metricDetails{
 }
 var registerOvsMetricsOnce sync.Once
 
-func RegisterOvsMetrics() {
+func RegisterOvsMetrics(exec util.ExecHelper) {
 	registerOvsMetricsOnce.Do(func() {
-		getOvsVersionInfo()
+		getOvsVersionInfo(exec)
 		prometheus.MustRegister(prometheus.NewGaugeFunc(
 			prometheus.GaugeOpts{
 				Namespace: MetricOvsNamespace,
@@ -1170,14 +1170,14 @@ func RegisterOvsMetrics() {
 		registerCoverageShowMetrics(ovsVswitchd, MetricOvsNamespace, MetricOvsSubsystemVswitchd)
 
 		// OVS datapath metrics updater
-		go ovsDatapathMetricsUpdate()
+		go ovsDatapathMetricsUpdate(exec)
 		// OVS bridge metrics updater
-		go ovsBridgeMetricsUpdate()
+		go ovsBridgeMetricsUpdate(exec)
 		// OVS memory metrics updater
-		go ovsMemoryMetricsUpdate()
+		go ovsMemoryMetricsUpdate(exec)
 		// OVS hw Offload metrics updater
-		go ovsHwOffloadMetricsUpdate()
+		go ovsHwOffloadMetricsUpdate(exec)
 		// OVS coverage/show metrics updater.
-		go coverageShowMetricsUpdater(ovsVswitchd)
+		go coverageShowMetricsUpdater(exec, ovsVswitchd)
 	})
 }

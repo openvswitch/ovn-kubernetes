@@ -88,7 +88,7 @@ var startE2ETimeStampUpdaterOnce sync.Once
 
 // RegisterMasterMetrics registers some ovnkube master metrics with the Prometheus
 // registry
-func RegisterMasterMetrics(nbClient, sbClient goovn.Client) {
+func RegisterMasterMetrics(exec util.ExecHelper, nbClient, sbClient goovn.Client) {
 	registerMasterMetricsOnce.Do(func() {
 		// ovnkube-master metrics
 		// the updater for this metric is activated
@@ -122,7 +122,7 @@ func RegisterMasterMetrics(nbClient, sbClient goovn.Client) {
 				Name:      "skipped_nbctl_daemon_total",
 				Help:      "The number of times we skipped using ovn-nbctl daemon and directly interacted with OVN NB DB",
 			}, func() float64 {
-				return float64(util.SkippedNbctlDaemonCounter)
+				return float64(exec.GetSkippedNbctlDaemonCount())
 			}))
 		prometheus.MustRegister(MetricMasterReadyDuration)
 		prometheus.MustRegister(metricOvnCliLatency)

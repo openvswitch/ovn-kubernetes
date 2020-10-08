@@ -19,34 +19,6 @@ var _ = Describe("Gateway Init Operations", func() {
 		config.Gateway.Mode = config.GatewayModeShared
 	})
 
-	It("correctly sorts gateway routers", func() {
-		fexec := ovntest.NewFakeExec()
-		fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-			Cmd: "ovn-nbctl --timeout=15 --data=bare --format=table --no-heading --columns=name,options find logical_router options:lb_force_snat_ip!=-",
-			Output: `node5      chassis=842fdade-747a-43b8-b40a-d8e8e26379fa lb_force_snat_ip=100.64.0.5
-node2 chassis=6a47b33b-89d3-4d65-ac31-b19b549326c7 lb_force_snat_ip=100.64.0.2
-node1 chassis=d17ddb5a-050d-42ab-ab50-7c6ce79a8f2e lb_force_snat_ip=100.64.0.1
-node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
-		})
-
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	It("ignores malformatted gateway router entires", func() {
-		fexec := ovntest.NewFakeExec()
-		fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-			Cmd: "ovn-nbctl --timeout=15 --data=bare --format=table --no-heading --columns=name,options find logical_router options:lb_force_snat_ip!=-",
-			Output: `node5      chassis=842fdade-747a-43b8-b40a-d8e8e26379fa lb_force_snat_ip=100.64.0.5
-node2 chassis=6a47b33b-89d3-4d65-ac31-b19b549326c7 lb_force_snat_ip=asdfsadf
-node1 chassis=d17ddb5a-050d-42ab-ab50-7c6ce79a8f2e lb_force_xxxxxxx=100.64.0.1
-node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
-		})
-
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
-	})
-
 	It("creates an IPv4 gateway in OVN", func() {
 		clusterIPSubnets := ovntest.MustParseIPNets("10.128.0.0/14")
 		hostSubnets := ovntest.MustParseIPNets("10.130.0.0/23")
@@ -64,8 +36,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		sctpSupport := false
 
 		fexec := ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
 
 		fexec.AddFakeCmdsNoOutputNoError([]string{
 			"ovn-nbctl --timeout=15 -- --may-exist lr-add GR_test-node -- set logical_router GR_test-node options:chassis=SYSTEM-ID external_ids:physical_ip=169.254.33.2 external_ids:physical_ips=169.254.33.2",
@@ -111,7 +81,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 			"ovn-nbctl --timeout=15 --if-exists lr-nat-del GR_test-node snat 10.128.0.0/14 -- lr-nat-add GR_test-node snat 169.254.33.2 10.128.0.0/14",
 		})
 
-		err = gatewayInit(nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
+		exec, err := util.NewExecHelper(fexec)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = gatewayInit(exec, nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fexec.CalledMatchesExpected()).To(BeTrue())
 	})
@@ -133,8 +106,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		sctpSupport := false
 
 		fexec := ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
 
 		// 0a:58:ee:33:fc:1a generated from util.IPAddrToHWAddr(net.ParseIP("fd98::1")).String()
 		// 0a:58:5f:8a:48:8c generated from util.IPAddrToHWAddr(net.ParseIP("fd98::2")).String()
@@ -182,7 +153,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 			"ovn-nbctl --timeout=15 --if-exists lr-nat-del GR_test-node snat fd01::/48 -- lr-nat-add GR_test-node snat fd99::2 fd01::/48",
 		})
 
-		err = gatewayInit(nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
+		exec, err := util.NewExecHelper(fexec)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = gatewayInit(exec, nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fexec.CalledMatchesExpected()).To(BeTrue())
 	})
@@ -204,8 +178,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		sctpSupport := false
 
 		fexec := ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
 
 		fexec.AddFakeCmdsNoOutputNoError([]string{
 			"ovn-nbctl --timeout=15 -- --may-exist lr-add GR_test-node -- set logical_router GR_test-node options:chassis=SYSTEM-ID external_ids:physical_ip=169.254.33.2 external_ids:physical_ips=169.254.33.2,fd99::2",
@@ -255,7 +227,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 			"ovn-nbctl --timeout=15 --if-exists lr-nat-del GR_test-node snat fd01::/48 -- lr-nat-add GR_test-node snat fd99::2 fd01::/48",
 		})
 
-		err = gatewayInit(nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
+		exec, err := util.NewExecHelper(fexec)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = gatewayInit(exec, nodeName, clusterIPSubnets, hostSubnets, joinSubnets, l3GatewayConfig, sctpSupport)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fexec.CalledMatchesExpected()).To(BeTrue())
 	})
@@ -269,8 +244,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		)
 
 		fexec := ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
 
 		fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 			Cmd:    "ovn-nbctl --timeout=15 --if-exist get logical_router_port rtoj-GR_test-node networks",
@@ -307,7 +280,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		})
 		cleanupPBRandNATRules(fexec, nodeName, []*net.IPNet{hostSubnet})
 
-		err = gatewayCleanup(nodeName)
+		exec, err := util.NewExecHelper(fexec)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = gatewayCleanup(exec, nodeName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fexec.CalledMatchesExpected()).To(BeTrue())
 	})
@@ -324,8 +300,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		)
 
 		fexec := ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
 
 		fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 			Cmd:    "ovn-nbctl --timeout=15 --if-exist get logical_router_port rtoj-GR_test-node networks",
@@ -370,7 +344,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		})
 		cleanupPBRandNATRules(fexec, nodeName, hostSubnets)
 
-		err = gatewayCleanup(nodeName)
+		exec, err := util.NewExecHelper(fexec)
+		Expect(err).NotTo(HaveOccurred())
+
+		err = gatewayCleanup(exec, nodeName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fexec.CalledMatchesExpected()).To(BeTrue())
 	})

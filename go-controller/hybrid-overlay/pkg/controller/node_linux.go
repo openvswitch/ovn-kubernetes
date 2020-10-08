@@ -39,6 +39,7 @@ type flowCacheEntry struct {
 // NodeController is the node hybrid overlay controller
 type NodeController struct {
 	kube        kube.Interface
+	exec        util.ExecHelper
 	nodeName    string
 	initialized bool
 	drMAC       net.HardwareAddr
@@ -64,6 +65,7 @@ type NodeController struct {
 //  2. Setting back annotations about its VTEP and gateway MAC address to its own object
 func newNodeController(
 	kube kube.Interface,
+	exec util.ExecHelper,
 	nodeName string,
 	nodeLister listers.NodeLister,
 	podLister listers.PodLister,
@@ -71,6 +73,7 @@ func newNodeController(
 
 	node := &NodeController{
 		kube:        kube,
+		exec:        exec,
 		nodeName:    nodeName,
 		vxlanPort:   uint16(config.HybridOverlay.VXLANPort),
 		tunMap:      make(map[string]string),
@@ -362,13 +365,13 @@ func (n *NodeController) DeleteNode(node *kapi.Node) error {
 	return nil
 }
 
-func getLocalNodeSubnet(nodeName string) (*net.IPNet, error) {
+func (n *NodeController) getLocalNodeSubnet(nodeName string) (*net.IPNet, error) {
 	var cidr string
 	var err error
 
 	// First wait for the node logical switch to be created by the Master, timeout is 300s.
 	if err := wait.PollImmediate(500*time.Millisecond, 300*time.Second, func() (bool, error) {
-		if cidr, _, err = util.RunOVNNbctl("get", "logical_switch", nodeName, "other-config:subnet"); err != nil {
+		if cidr, _, err = n.exec.RunOVNNbctl("get", "logical_switch", nodeName, "other-config:subnet"); err != nil {
 			return false, nil
 		}
 		return true, nil
@@ -402,7 +405,7 @@ func (n *NodeController) EnsureHybridOverlayBridge(node *kapi.Node) error {
 		return nil
 	}
 
-	subnet, err := getLocalNodeSubnet(n.nodeName)
+	subnet, err := n.getLocalNodeSubnet(n.nodeName)
 	if err != nil {
 		return err
 	}
@@ -426,7 +429,7 @@ func (n *NodeController) EnsureHybridOverlayBridge(node *kapi.Node) error {
 	hybridOverlayIfAddr := util.GetNodeHybridOverlayIfAddr(subnet)
 	n.drIP = hybridOverlayIfAddr.IP
 
-	_, stderr, err := util.RunOVSVsctl("--may-exist", "add-br", extBridgeName,
+	_, stderr, err := n.exec.RunOVSVsctl("--may-exist", "add-br", extBridgeName,
 		"--", "set", "Bridge", extBridgeName, "fail_mode=secure",
 		"--", "set", "Interface", extBridgeName, "mtu_request="+fmt.Sprintf("%d", config.Default.MTU))
 	if err != nil {
@@ -436,11 +439,11 @@ func (n *NodeController) EnsureHybridOverlayBridge(node *kapi.Node) error {
 
 	// A OVS bridge's mac address can change when ports are added to it.
 	// We cannot let that happen, so make the bridge mac address permanent.
-	macAddress, err := util.GetOVSPortMACAddress(extBridgeName)
+	macAddress, err := util.GetOVSPortMACAddress(n.exec, extBridgeName)
 	if err != nil {
 		return err
 	}
-	stdout, stderr, err := util.RunOVSVsctl("set", "bridge", extBridgeName, "other-config:hwaddr="+macAddress.String())
+	stdout, stderr, err := n.exec.RunOVSVsctl("set", "bridge", extBridgeName, "other-config:hwaddr="+macAddress.String())
 	if err != nil {
 		return fmt.Errorf("failed to set bridge, stdout: %q, stderr: %q, "+
 			"error: %v", stdout, stderr, err)
@@ -455,7 +458,7 @@ func (n *NodeController) EnsureHybridOverlayBridge(node *kapi.Node) error {
 		rampExt string = "ext"
 	)
 	// Create the connection between OVN's br-int and our hybrid overlay bridge br-ext
-	_, stderr, err = util.RunOVSVsctl("--may-exist", "add-port", "br-int", rampInt,
+	_, stderr, err = n.exec.RunOVSVsctl("--may-exist", "add-port", "br-int", rampInt,
 		"--", "--may-exist", "add-port", extBridgeName, rampExt,
 		"--", "set", "Interface", rampInt, "type=patch", "options:peer="+rampExt, "external-ids:iface-id="+portName,
 		"--", "set", "Interface", rampExt, "type=patch", "options:peer="+rampInt)
@@ -465,7 +468,7 @@ func (n *NodeController) EnsureHybridOverlayBridge(node *kapi.Node) error {
 	}
 
 	// Add the VXLAN port for sending/receiving traffic from hybrid overlay nodes
-	_, stderr, err = util.RunOVSVsctl("--may-exist", "add-port", extBridgeName, extVXLANName,
+	_, stderr, err = n.exec.RunOVSVsctl("--may-exist", "add-port", extBridgeName, extVXLANName,
 		"--", "set", "interface", extVXLANName, "type=vxlan", `options:remote_ip="flow"`, `options:key="flow"`, fmt.Sprintf("options:dst_port=%d", n.vxlanPort))
 	if err != nil {
 		return fmt.Errorf("failed to add VXLAN port for ovs bridge %s"+
@@ -588,7 +591,7 @@ func (n *NodeController) syncFlows() {
 	defer n.flowMutex.Unlock()
 	// any learned flows in table 20 we need to store for the update, as long as they correspond to a
 	// current pod in the cache
-	stdout, stderr, err := util.RunOVSOfctl("dump-flows", "--no-stats", extBridgeName, "table=20")
+	stdout, stderr, err := n.exec.RunOVSOfctl("dump-flows", "--no-stats", extBridgeName, "table=20")
 	if err != nil {
 		klog.Errorf("Failed to dump flows for flow sync, stderr: %q, error: %v", stderr, err)
 		return
@@ -636,7 +639,7 @@ func (n *NodeController) syncFlows() {
 			flows = append(flows, entry.learnedFlow)
 		}
 	}
-	_, _, err = util.ReplaceOFFlows(extBridgeName, flows)
+	_, _, err = util.ReplaceOFFlows(n.exec, extBridgeName, flows)
 	if err != nil {
 		klog.Errorf("Failed to add flows, error: %v, flows: %s", err, flows)
 	}

@@ -40,6 +40,7 @@ func initFakeNodePortWatcher(fakeOvnNode *FakeOVNNode, iptV4, iptV6 util.IPTable
 	Expect(err).NotTo(HaveOccurred())
 
 	fNPW := localPortWatcherData{
+		exec:         fakeOvnNode.exec,
 		recorder:     fakeOvnNode.recorder,
 		gatewayIPv4:  v4localnetGatewayIP,
 		localAddrSet: getFakeLocalAddrs(),

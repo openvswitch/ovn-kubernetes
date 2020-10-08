@@ -15,18 +15,18 @@ import (
 // bridgedGatewayNodeSetup makes the bridge's MAC address permanent (if needed), sets up
 // the physical network name mappings for the bridge, and returns an ifaceID
 // created from the bridge name and the node name
-func bridgedGatewayNodeSetup(nodeName, bridgeName, bridgeInterface, physicalNetworkName string,
+func bridgedGatewayNodeSetup(exec util.ExecHelper, nodeName, bridgeName, bridgeInterface, physicalNetworkName string,
 	syncBridgeMAC bool) (string, net.HardwareAddr, error) {
 	// A OVS bridge's mac address can change when ports are added to it.
 	// We cannot let that happen, so make the bridge mac address permanent.
-	macAddress, err := util.GetOVSPortMACAddress(bridgeInterface)
+	macAddress, err := util.GetOVSPortMACAddress(exec, bridgeInterface)
 	if err != nil {
 		return "", nil, err
 	}
 	if syncBridgeMAC {
 		var err error
 
-		stdout, stderr, err := util.RunOVSVsctl("set", "bridge",
+		stdout, stderr, err := exec.RunOVSVsctl("set", "bridge",
 			bridgeName, "other-config:hwaddr="+macAddress.String())
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to set bridge, stdout: %q, stderr: %q, "+
@@ -38,7 +38,7 @@ func bridgedGatewayNodeSetup(nodeName, bridgeName, bridgeInterface, physicalNetw
 	// that provides connectivity to that network. It is in the form of physnet1:br1,physnet2:br2.
 	// Note that there may be multiple ovs bridge mappings, be sure not to override
 	// the mappings for the other physical network
-	stdout, stderr, err := util.RunOVSVsctl("--if-exists", "get", "Open_vSwitch", ".",
+	stdout, stderr, err := exec.RunOVSVsctl("--if-exists", "get", "Open_vSwitch", ".",
 		"external_ids:ovn-bridge-mappings")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to get ovn-bridge-mappings stderr:%s (%v)", stderr, err)
@@ -60,7 +60,7 @@ func bridgedGatewayNodeSetup(nodeName, bridgeName, bridgeInterface, physicalNetw
 	}
 	mapString += physicalNetworkName + ":" + bridgeName
 
-	_, stderr, err = util.RunOVSVsctl("set", "Open_vSwitch", ".",
+	_, stderr, err = exec.RunOVSVsctl("set", "Open_vSwitch", ".",
 		fmt.Sprintf("external_ids:ovn-bridge-mappings=%s", mapString))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to set ovn-bridge-mappings for ovs bridge %s"+
@@ -194,7 +194,7 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 	// as that option does not add default SNAT rules on the GR and the gatewayReady function checks
 	// those default NAT rules are present
 	if !config.Gateway.DisableSNATMultipleGWs && config.Gateway.Mode != config.GatewayModeLocal {
-		waiter.AddWait(gatewayReady, prFn)
+		waiter.AddWait(n.gatewayReady, prFn)
 	} else {
 		waiter.AddWait(func() (bool, error) { return true, nil }, prFn)
 	}
@@ -203,22 +203,22 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 
 // CleanupClusterNode cleans up OVS resources on the k8s node on ovnkube-node daemonset deletion.
 // This is going to be a best effort cleanup.
-func CleanupClusterNode(name string) error {
+func CleanupClusterNode(exec util.ExecHelper, name string) error {
 	var err error
 
 	klog.V(5).Infof("Cleaning up gateway resources on node: %q", name)
 	if config.Gateway.Mode == config.GatewayModeLocal || config.Gateway.Mode == config.GatewayModeShared {
-		err = cleanupLocalnetGateway(util.LocalNetworkName)
+		err = cleanupLocalnetGateway(exec, util.LocalNetworkName)
 		if err != nil {
 			klog.Errorf("Failed to cleanup Localnet Gateway, error: %v", err)
 		}
-		err = cleanupSharedGateway()
+		err = cleanupSharedGateway(exec)
 	}
 	if err != nil {
 		klog.Errorf("Failed to cleanup Gateway, error: %v", err)
 	}
 
-	stdout, stderr, err := util.RunOVSVsctl("--", "--if-exists", "remove", "Open_vSwitch", ".", "external_ids",
+	stdout, stderr, err := exec.RunOVSVsctl("--", "--if-exists", "remove", "Open_vSwitch", ".", "external_ids",
 		"ovn-bridge-mappings")
 	if err != nil {
 		klog.Errorf("Failed to delete ovn-bridge-mappings, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
@@ -230,8 +230,8 @@ func CleanupClusterNode(name string) error {
 	return nil
 }
 
-// GatewayReady will check to see if we have successfully added SNAT OpenFlow rules in the L3Gateway Routers
-func gatewayReady() (bool, error) {
+// gatewayReady will check to see if we have successfully added SNAT OpenFlow rules in the L3Gateway Routers
+func (n *OvnNode) gatewayReady() (bool, error) {
 	// OpenFlow table 41 performs SNATing of packets that are heading to physical network from
 	// logical network.
 	for _, clusterSubnet := range config.Default.ClusterSubnets {
@@ -242,7 +242,7 @@ func gatewayReady() (bool, error) {
 		} else {
 			match = "ip,nw_src=" + cidr
 		}
-		stdout, _, err := util.RunOVSOfctl("--no-stats", "--no-names", "dump-flows", "br-int",
+		stdout, _, err := n.exec.RunOVSOfctl("--no-stats", "--no-names", "dump-flows", "br-int",
 			"table=41,"+match)
 		if err != nil {
 			return false, nil

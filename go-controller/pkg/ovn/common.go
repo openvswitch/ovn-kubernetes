@@ -25,9 +25,9 @@ func hashedPortGroup(s string) string {
 	return hashForOVN(s)
 }
 
-func createPortGroup(name string, hashName string) (string, error) {
+func createPortGroup(exec util.ExecHelper, name string, hashName string) (string, error) {
 	klog.V(5).Infof("createPortGroup with %s", name)
-	portGroup, stderr, err := util.RunOVNNbctl("--data=bare",
+	portGroup, stderr, err := exec.RunOVNNbctl("--data=bare",
 		"--no-heading", "--columns=_uuid", "find", "port_group",
 		fmt.Sprintf("name=%s", hashName))
 	if err != nil {
@@ -39,7 +39,7 @@ func createPortGroup(name string, hashName string) (string, error) {
 		return portGroup, nil
 	}
 
-	portGroup, stderr, err = util.RunOVNNbctl("create", "port_group",
+	portGroup, stderr, err = exec.RunOVNNbctl("create", "port_group",
 		fmt.Sprintf("name=%s", hashName),
 		fmt.Sprintf("external-ids:name=%s", name))
 	if err != nil {
@@ -50,10 +50,10 @@ func createPortGroup(name string, hashName string) (string, error) {
 	return portGroup, nil
 }
 
-func deletePortGroup(hashName string) {
+func deletePortGroup(exec util.ExecHelper, hashName string) {
 	klog.V(5).Infof("deletePortGroup %s", hashName)
 
-	portGroup, stderr, err := util.RunOVNNbctl("--data=bare",
+	portGroup, stderr, err := exec.RunOVNNbctl("--data=bare",
 		"--no-heading", "--columns=_uuid", "find", "port_group",
 		fmt.Sprintf("name=%s", hashName))
 	if err != nil {
@@ -66,7 +66,7 @@ func deletePortGroup(hashName string) {
 		return
 	}
 
-	_, stderr, err = util.RunOVNNbctl("--if-exists", "destroy",
+	_, stderr, err = exec.RunOVNNbctl("--if-exists", "destroy",
 		"port_group", portGroup)
 	if err != nil {
 		klog.Errorf("Failed to destroy port_group %s, stderr: %q, (%v)",

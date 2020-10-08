@@ -975,10 +975,9 @@ var _ = Describe("Gateway Init Operations", func() {
 			egressIPFakeClient := &egressipfake.Clientset{}
 
 			fexec := ovntest.NewFakeExec()
-			err := util.SetExec(fexec)
+			_, err := config.InitConfig(ctx, fexec, nil)
 			Expect(err).NotTo(HaveOccurred())
-
-			_, err = config.InitConfig(ctx, fexec, nil)
+			exec, err := util.NewExecHelper(fexec)
 			Expect(err).NotTo(HaveOccurred())
 
 			nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{fakeClient, egressIPFakeClient, egressFirewallFakeClient}, &testNode)
@@ -1099,7 +1098,7 @@ var _ = Describe("Gateway Init Operations", func() {
 			f, err = factory.NewWatchFactory(fakeClient, egressIPFakeClient, egressFirewallFakeClient, crdFakeClient)
 			Expect(err).NotTo(HaveOccurred())
 
-			clusterController := NewOvnController(fakeClient, egressIPFakeClient, egressFirewallFakeClient, f, stopChan,
+			clusterController := NewOvnController(fakeClient, exec, egressIPFakeClient, egressFirewallFakeClient, f, stopChan,
 				newFakeAddressSetFactory(), ovntest.NewMockOVNClient(goovn.DBNB),
 				ovntest.NewMockOVNClient(goovn.DBSB), record.NewFakeRecorder(0))
 			Expect(clusterController).NotTo(BeNil())

@@ -61,13 +61,12 @@ var _ = Describe("Node Operations", func() {
 					nodeIP, interval, ofintval, nodeName),
 			})
 
-			err := util.SetExec(fexec)
+			_, err := config.InitConfig(ctx, fexec, nil)
+			Expect(err).NotTo(HaveOccurred())
+			exec, err := util.NewExecHelper(fexec)
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
-
-			err = setupOVNNode(&node)
+			err = setupOVNNode(exec, &node)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
@@ -128,14 +127,13 @@ var _ = Describe("Node Operations", func() {
 					"%s options:dst_port=%d", encapUUID, encapPort),
 			})
 
-			err := util.SetExec(fexec)
-			Expect(err).NotTo(HaveOccurred())
-
-			_, err = config.InitConfig(ctx, fexec, nil)
+			_, err := config.InitConfig(ctx, fexec, nil)
 			Expect(err).NotTo(HaveOccurred())
 			config.Default.EncapPort = encapPort
+			exec, err := util.NewExecHelper(fexec)
+			Expect(err).NotTo(HaveOccurred())
 
-			err = setupOVNNode(&node)
+			err = setupOVNNode(exec, &node)
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)

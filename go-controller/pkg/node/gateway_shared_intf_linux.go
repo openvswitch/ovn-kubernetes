@@ -19,15 +19,15 @@ import (
 // appropriate IP and MAC address on it. All the traffic from this node's hostNetwork
 // Pod towards cluster service ip whose backend is the node itself is forwarded to the
 // ovn-k8s-gw0 port after SNATing by the OVN's distributed gateway port.
-func setupLocalNodeAccessBridge(nodeName string, subnets []*net.IPNet) error {
+func setupLocalNodeAccessBridge(exec util.ExecHelper, nodeName string, subnets []*net.IPNet) error {
 	localBridgeName := "br-local"
-	_, stderr, err := util.RunOVSVsctl("--may-exist", "add-br", localBridgeName)
+	_, stderr, err := exec.RunOVSVsctl("--may-exist", "add-br", localBridgeName)
 	if err != nil {
 		return fmt.Errorf("failed to create bridge %s, stderr:%s (%v)",
 			localBridgeName, stderr, err)
 	}
 
-	_, _, err = bridgedGatewayNodeSetup(nodeName, localBridgeName, localBridgeName,
+	_, _, err = bridgedGatewayNodeSetup(exec, nodeName, localBridgeName, localBridgeName,
 		util.LocalNetworkName, true)
 	if err != nil {
 		return fmt.Errorf("failed while setting up local node access bridge : %v", err)
@@ -45,7 +45,7 @@ func setupLocalNodeAccessBridge(nodeName string, subnets []*net.IPNet) error {
 		macAddress = util.IPAddrToHWAddr(net.ParseIP(util.V6NodeLocalNatSubnetNextHop)).String()
 	}
 
-	_, stderr, err = util.RunOVSVsctl(
+	_, stderr, err = exec.RunOVSVsctl(
 		"--may-exist", "add-port", localBridgeName, localnetGatewayNextHopPort,
 		"--", "set", "interface", localnetGatewayNextHopPort, "type=internal",
 		"mtu_request="+fmt.Sprintf("%d", config.Default.MTU),

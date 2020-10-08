@@ -16,8 +16,8 @@ var (
 	ovnNorthdOvsLibVersion string
 )
 
-func getOvnNorthdVersionInfo() {
-	stdout, _, err := util.RunOVNNorthAppCtl("version")
+func getOvnNorthdVersionInfo(exec util.ExecHelper) {
+	stdout, _, err := exec.RunOVNNorthAppCtl("version")
 	if err != nil {
 		return
 	}
@@ -73,7 +73,7 @@ var ovnNorthdCoverageShowMetricsMap = map[string]*metricDetails{
 	},
 }
 
-func RegisterOvnNorthdMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
+func RegisterOvnNorthdMetrics(exec util.ExecHelper, clientset *kubernetes.Clientset, k8sNodeName string) {
 	err := wait.PollImmediate(1*time.Second, 300*time.Second, func() (bool, error) {
 		return checkPodRunsOnGivenNode(clientset, "name=ovnkube-master", k8sNodeName, true)
 	})
@@ -89,7 +89,7 @@ func RegisterOvnNorthdMetrics(clientset *kubernetes.Clientset, k8sNodeName strin
 	klog.Info("Found OVNKube Master Pod running on this node. Registering OVN North Metrics")
 
 	// ovn-northd metrics
-	getOvnNorthdVersionInfo()
+	getOvnNorthdVersionInfo(exec)
 	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
 			Namespace: MetricOvnNamespace,
@@ -112,7 +112,7 @@ func RegisterOvnNorthdMetrics(clientset *kubernetes.Clientset, k8sNodeName strin
 			Help: "The maximum number of milliseconds of idle time on connection to the OVN SB " +
 				"and NB DB before sending an inactivity probe message",
 		}, func() float64 {
-			stdout, stderr, err := util.RunOVNNbctlWithTimeout(5, "get", "NB_Global", ".",
+			stdout, stderr, err := exec.RunOVNNbctlWithTimeout(5, "get", "NB_Global", ".",
 				"options:northd_probe_interval")
 			if err != nil {
 				klog.Errorf("Failed to get northd_probe_interval value "+
@@ -129,7 +129,7 @@ func RegisterOvnNorthdMetrics(clientset *kubernetes.Clientset, k8sNodeName strin
 			Name:      "status",
 			Help:      "Specifies whether this instance of ovn-northd is standby(0) or active(1) or paused(2).",
 		}, func() float64 {
-			stdout, stderr, err := util.RunOVNNorthAppCtl("status")
+			stdout, stderr, err := exec.RunOVNNorthAppCtl("status")
 			if err != nil {
 				klog.Errorf("Failed to get ovn-northd status "+
 					"stderr(%s) :(%v)", stderr, err)
@@ -153,5 +153,5 @@ func RegisterOvnNorthdMetrics(clientset *kubernetes.Clientset, k8sNodeName strin
 	// Register the ovn-northd coverage/show metrics with prometheus
 	componentCoverageShowMetricsMap[ovnNorthd] = ovnNorthdCoverageShowMetricsMap
 	registerCoverageShowMetrics(ovnNorthd, MetricOvnNamespace, MetricOvnSubsystemNorthd)
-	go coverageShowMetricsUpdater(ovnNorthd)
+	go coverageShowMetricsUpdater(exec, ovnNorthd)
 }

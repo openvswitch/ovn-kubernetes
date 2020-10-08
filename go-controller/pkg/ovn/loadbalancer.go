@@ -21,15 +21,15 @@ func (ovn *Controller) getLoadBalancer(protocol kapi.Protocol) (string, error) {
 	var out string
 	var err error
 	if protocol == kapi.ProtocolTCP {
-		out, _, err = util.RunOVNNbctl("--data=bare",
+		out, _, err = ovn.exec.RunOVNNbctl("--data=bare",
 			"--no-heading", "--columns=_uuid", "find", "load_balancer",
 			"external_ids:k8s-cluster-lb-tcp=yes")
 	} else if protocol == kapi.ProtocolUDP {
-		out, _, err = util.RunOVNNbctl("--data=bare", "--no-heading",
+		out, _, err = ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 			"--columns=_uuid", "find", "load_balancer",
 			"external_ids:k8s-cluster-lb-udp=yes")
 	} else if protocol == kapi.ProtocolSCTP {
-		out, _, err = util.RunOVNNbctl("--data=bare", "--no-heading",
+		out, _, err = ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 			"--columns=_uuid", "find", "load_balancer",
 			"external_ids:k8s-cluster-lb-sctp=yes")
 	}
@@ -45,7 +45,7 @@ func (ovn *Controller) getLoadBalancer(protocol kapi.Protocol) (string, error) {
 
 // getLoadBalancerVIPs returns a map whose keys are VIPs (IP:port) on loadBalancer
 func (ovn *Controller) getLoadBalancerVIPs(loadBalancer string) (map[string]interface{}, error) {
-	outStr, _, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	outStr, _, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"get", "load_balancer", loadBalancer, "vips")
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (ovn *Controller) getLoadBalancerVIPs(loadBalancer string) (map[string]inte
 // deleteLoadBalancerVIP removes the VIP as well as any reject ACLs associated to the LB
 func (ovn *Controller) deleteLoadBalancerVIP(loadBalancer, vip string) error {
 	vipQuotes := fmt.Sprintf("\"%s\"", vip)
-	stdout, stderr, err := util.RunOVNNbctl("--if-exists", "remove", "load_balancer", loadBalancer, "vips", vipQuotes)
+	stdout, stderr, err := ovn.exec.RunOVNNbctl("--if-exists", "remove", "load_balancer", loadBalancer, "vips", vipQuotes)
 	if err != nil {
 		// if we hit an error and fail to remove load balancer, we skip removing the rejectACL
 		return fmt.Errorf("error in deleting load balancer vip %s for %s"+
@@ -91,7 +91,7 @@ func (ovn *Controller) configureLoadBalancer(lb, sourceIP string, sourcePort int
 	vip := util.JoinHostPortInt32(sourceIP, sourcePort)
 	lbTarget := fmt.Sprintf(`vips:"%s"="%s"`, vip, strings.Join(targets, ","))
 
-	out, stderr, err := util.RunOVNNbctl("set", "load_balancer", lb, lbTarget)
+	out, stderr, err := ovn.exec.RunOVNNbctl("set", "load_balancer", lb, lbTarget)
 	if err != nil {
 		return fmt.Errorf("error in configuring load balancer: %s "+
 			"stdout: %q, stderr: %q, error: %v", lb, out, stderr, err)
@@ -133,7 +133,7 @@ func (ovn *Controller) createLoadBalancerVIPs(lb string,
 }
 
 func (ovn *Controller) getLogicalSwitchesForLoadBalancer(lb string) ([]string, error) {
-	out, _, err := util.RunOVNNbctl("--data=bare", "--no-heading",
+	out, _, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=_uuid", "find",
 		"logical_switch", fmt.Sprintf("load_balancer{>=}%s", lb))
 	if err != nil {
@@ -143,7 +143,7 @@ func (ovn *Controller) getLogicalSwitchesForLoadBalancer(lb string) ([]string, e
 		return strings.Fields(out), nil
 	}
 	// if load balancer was not on a switch, then it may be on a router
-	out, _, err = util.RunOVNNbctl("--data=bare", "--no-heading",
+	out, _, err = ovn.exec.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=name", "find",
 		"logical_router", fmt.Sprintf("load_balancer{>=}%s", lb))
 	if err != nil {
@@ -224,7 +224,7 @@ func (ovn *Controller) createLoadBalancerRejectACL(lb string, sourceIP string, s
 	aclName := ovn.generateACLName(lb, sourceIP, sourcePort)
 	// If ovn-k8s was restarted, we lost the cache, and an ACL may already exist in OVN. In that case we need to check
 	// using ACL name
-	aclUUID, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "acl",
+	aclUUID, stderr, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "acl",
 		fmt.Sprintf("name=%s", aclName))
 	if err != nil {
 		klog.Errorf("Error while querying ACLs by name: %s, %v", stderr, err)
@@ -236,7 +236,7 @@ func (ovn *Controller) createLoadBalancerRejectACL(lb string, sourceIP string, s
 			cmd = append(cmd, "--", "add", "logical_switch", ls, "acls", aclUUID)
 		}
 		if len(cmd) > 0 {
-			_, _, err = util.RunOVNNbctl(cmd...)
+			_, _, err = ovn.exec.RunOVNNbctl(cmd...)
 			if err != nil {
 				klog.Warningf("Unable to add reject ACL: %s for switches: %s", aclUUID, switches)
 			}
@@ -254,7 +254,7 @@ func (ovn *Controller) createLoadBalancerRejectACL(lb string, sourceIP string, s
 		cmd = append(cmd, "--", "add", "logical_switch", ls, "acls", "@acl")
 	}
 
-	aclUUID, stderr, err = util.RunOVNNbctl(cmd...)
+	aclUUID, stderr, err = ovn.exec.RunOVNNbctl(cmd...)
 	if err != nil {
 		return "", fmt.Errorf("error creating ACL reject rule: %s for load balancer %s: %s, %s", cmd, lb, stderr,
 			err)
@@ -290,7 +290,7 @@ func (ovn *Controller) deleteLoadBalancerRejectACL(lb, vip string) {
 
 func (ovn *Controller) removeStaleRejectACL(lb, ip string, port int32) {
 	aclName := ovn.generateACLName(lb, ip, port)
-	aclUUID, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "acl",
+	aclUUID, stderr, err := ovn.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "acl",
 		fmt.Sprintf("name=%s", aclName))
 	if err != nil {
 		klog.Errorf("Error while querying ACLs by name: %s, %v", stderr, err)
@@ -316,7 +316,7 @@ func (ovn *Controller) removeACLFromNodeSwitches(lb, aclUUID string) {
 	}
 
 	if len(args) > 0 {
-		_, _, err = util.RunOVNNbctl(args...)
+		_, _, err = ovn.exec.RunOVNNbctl(args...)
 		if err != nil {
 			klog.Errorf("Error while removing ACL: %s, from switches, error: %v", aclUUID, err)
 		} else {

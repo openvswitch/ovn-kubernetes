@@ -28,14 +28,16 @@ type FakeOVNNode struct {
 	fakeEgressClient   *egressfirewallfake.Clientset
 	fakeCRDClient      *apiextensionsfake.Clientset
 	fakeExec           *ovntest.FakeExec
+	exec               util.ExecHelper
 }
 
 func NewFakeOVNNode(fexec *ovntest.FakeExec) *FakeOVNNode {
-	err := util.SetExec(fexec)
+	exec, err := util.NewExecHelper(fexec)
 	Expect(err).NotTo(HaveOccurred())
 
 	return &FakeOVNNode{
 		fakeExec: fexec,
+		exec:     exec,
 		recorder: record.NewFakeRecorder(1),
 	}
 }
@@ -72,5 +74,5 @@ func (o *FakeOVNNode) init() {
 	o.watcher, err = factory.NewWatchFactory(o.fakeClient, o.fakeEgressIPClient, o.fakeEgressClient, o.fakeCRDClient)
 	Expect(err).NotTo(HaveOccurred())
 
-	o.node = NewNode(o.fakeClient, o.watcher, fakeNodeName, o.stopChan, o.recorder)
+	o.node = NewNode(o.fakeClient, o.exec, o.watcher, fakeNodeName, o.stopChan, o.recorder)
 }

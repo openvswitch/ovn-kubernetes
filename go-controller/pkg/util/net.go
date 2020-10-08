@@ -32,8 +32,8 @@ func intToIP(i *big.Int) net.IP {
 // GetNodeLogicalRouterNetworkInfo returns the IPs (IPv4 and/or IPv6) of the provided node's logical router
 // Expected output from the ovn-nbctl command, which will need to be parsed is:
 // `100.64.1.1/29 fd98:1::/125`
-func GetNodeGatewayRouterNetInfo(nodeName string) ([]net.IP, error) {
-	stdout, _, err := RunOVNNbctl(
+func GetNodeGatewayRouterNetInfo(exec ExecHelper, nodeName string) ([]net.IP, error) {
+	stdout, _, err := exec.RunOVNNbctl(
 		"--format=table",
 		"--data=bare",
 		"--no-heading",
@@ -101,8 +101,8 @@ func GetPortAddresses(portName string, ovnNBClient goovn.Client) (net.HardwareAd
 }
 
 // GetOVSPortMACAddress returns the MAC address of a given OVS port
-func GetOVSPortMACAddress(portName string) (net.HardwareAddr, error) {
-	macAddress, stderr, err := RunOVSVsctl("--if-exists", "get",
+func GetOVSPortMACAddress(exec ExecHelper, portName string) (net.HardwareAddr, error) {
+	macAddress, stderr, err := exec.RunOVSVsctl("--if-exists", "get",
 		"interface", portName, "mac_in_use")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MAC address for %q, stderr: %q, error: %v",

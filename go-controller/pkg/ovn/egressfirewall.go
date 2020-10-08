@@ -25,6 +25,7 @@ const (
 type egressFirewall struct {
 	name        string
 	namespace   string
+	exec        util.ExecHelper
 	egressRules []*egressFirewallRule
 }
 
@@ -39,10 +40,11 @@ type destination struct {
 	cidrSelector string
 }
 
-func newEgressFirewall(egressFirewallPolicy *egressfirewallapi.EgressFirewall) *egressFirewall {
+func newEgressFirewall(exec util.ExecHelper, egressFirewallPolicy *egressfirewallapi.EgressFirewall) *egressFirewall {
 	ef := &egressFirewall{
 		name:        egressFirewallPolicy.Name,
 		namespace:   egressFirewallPolicy.Namespace,
+		exec:        exec,
 		egressRules: make([]*egressFirewallRule, 0),
 	}
 	return ef
@@ -79,7 +81,7 @@ func (oc *Controller) addEgressFirewall(egressFirewall *egressfirewallapi.Egress
 			egressFirewall.Name, egressFirewall.Namespace)}
 	}
 
-	ef := newEgressFirewall(egressFirewall)
+	ef := newEgressFirewall(oc.exec, egressFirewall)
 	nsInfo.egressFirewallPolicy = ef
 	var errList []error
 	egressFirewallStartPriorityInt, err := strconv.Atoi(egressFirewallStartPriority)
@@ -133,7 +135,7 @@ func (oc *Controller) deleteEgressFirewall(egressFirewall *egressfirewallapi.Egr
 		nsInfo.egressFirewallPolicy = nil
 		nsInfo.Unlock()
 	}
-	stdout, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "logical_router_policy", fmt.Sprintf("external-ids:egressFirewall=%s", egressFirewall.Namespace))
+	stdout, stderr, err := oc.exec.RunOVNNbctl("--data=bare", "--no-heading", "--columns=_uuid", "find", "logical_router_policy", fmt.Sprintf("external-ids:egressFirewall=%s", egressFirewall.Namespace))
 	if err != nil {
 		return []error{fmt.Errorf("error deleting egressFirewall for namespace %s, cannot get logical router policies from LR %s - %s:%s",
 			egressFirewall.Namespace, ovnClusterRouter, err, stderr)}
@@ -142,7 +144,7 @@ func (oc *Controller) deleteEgressFirewall(egressFirewall *egressfirewallapi.Egr
 
 	uuids := strings.Fields(stdout)
 	for _, uuid := range uuids {
-		_, stderr, err := util.RunOVNNbctl("lr-policy-del", ovnClusterRouter, uuid)
+		_, stderr, err := oc.exec.RunOVNNbctl("lr-policy-del", ovnClusterRouter, uuid)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("failed to delete the rules for "+
 				"egressFirewall in namespace %s on logical switch %s, stderr: %q (%v)", egressFirewall.Namespace, ovnClusterRouter, stderr, err))
@@ -178,7 +180,7 @@ func (ef *egressFirewall) addLogicalRouterPolicyToClusterRouter(hashedAddressSet
 
 		match = fmt.Sprintf("%s && %s\"", match, getClusterSubnetsExclusion())
 
-		_, stderr, err := util.RunOVNNbctl("--id=@logical_router_policy", "create", "logical_router_policy",
+		_, stderr, err := ef.exec.RunOVNNbctl("--id=@logical_router_policy", "create", "logical_router_policy",
 			fmt.Sprintf("priority=%d", efStartPriority-rule.id),
 			match, "action="+action, fmt.Sprintf("external-ids:egressFirewall=%s", ef.namespace),
 			"--", "add", "logical_router", ovnClusterRouter, "policies", "@logical_router_policy")

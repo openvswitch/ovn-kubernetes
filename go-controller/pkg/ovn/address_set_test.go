@@ -40,10 +40,10 @@ var _ = Describe("OVN Address Set operations", func() {
 		app.Flags = config.Flags
 
 		fexec = ovntest.NewFakeExec()
-		err := util.SetExec(fexec)
+		exec, err := util.NewExecHelper(fexec)
 		Expect(err).NotTo(HaveOccurred())
 
-		asFactory = NewOvnAddressSetFactory()
+		asFactory = NewOvnAddressSetFactory(exec)
 	})
 
 	Context("when iterating address sets", func() {

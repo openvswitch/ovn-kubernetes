@@ -166,18 +166,19 @@ func runOvnKubeDBChecker(ctx *cli.Context) error {
 		}
 	}
 
-	exec := kexec.New()
-	_, err := config.InitConfig(ctx, exec, nil)
+	baseExec := kexec.New()
+	_, err := config.InitConfig(ctx, baseExec, nil)
 	if err != nil {
 		return err
 	}
 
-	if err = util.SetExec(exec); err != nil {
+	exec, err := util.NewExecHelper(baseExec)
+	if err != nil {
 		return fmt.Errorf("failed to initialize exec helper: %v", err)
 	}
 
 	stopChan := make(chan struct{})
-	ovndbmanager.RunDBChecker(stopChan)
+	ovndbmanager.RunDBChecker(exec, stopChan)
 	// run until cancelled
 	<-ctx.Context.Done()
 	close(stopChan)

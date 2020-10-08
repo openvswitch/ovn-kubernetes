@@ -60,7 +60,7 @@ func (oc *Controller) addPodToNamespace(ns string, portInfo *lpInfo) error {
 	// If multicast is allowed and enabled for the namespace, add the port
 	// to the allow policy.
 	if oc.multicastSupport && nsInfo.multicastEnabled {
-		if err := podAddAllowMulticastPolicy(ns, portInfo); err != nil {
+		if err := oc.podAddAllowMulticastPolicy(ns, portInfo); err != nil {
 			return err
 		}
 	}
@@ -81,7 +81,7 @@ func (oc *Controller) deletePodFromNamespace(ns string, portInfo *lpInfo) error 
 
 	// Remove the port from the multicast allow policy.
 	if oc.multicastSupport && nsInfo.multicastEnabled {
-		if err := podDeleteAllowMulticastPolicy(ns, portInfo); err != nil {
+		if err := oc.podDeleteAllowMulticastPolicy(ns, portInfo); err != nil {
 			return err
 		}
 	}
@@ -117,7 +117,7 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 	if enabled {
 		err = oc.createMulticastAllowPolicy(ns.Name, nsInfo)
 	} else {
-		err = deleteMulticastAllowPolicy(ns.Name, nsInfo)
+		err = oc.deleteMulticastAllowPolicy(ns.Name, nsInfo)
 	}
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -130,7 +130,7 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 func (oc *Controller) multicastDeleteNamespace(ns *kapi.Namespace, nsInfo *namespaceInfo) {
 	if nsInfo.multicastEnabled {
 		nsInfo.multicastEnabled = false
-		if err := deleteMulticastAllowPolicy(ns.Name, nsInfo); err != nil {
+		if err := oc.deleteMulticastAllowPolicy(ns.Name, nsInfo); err != nil {
 			klog.Errorf(err.Error())
 		}
 	}
@@ -148,13 +148,13 @@ func (nsInfo *namespaceInfo) updateNamespacePortGroup(ns string) error {
 		}
 
 		// The port group should exist but doesn't so create it
-		portGroupUUID, err := createPortGroup(ns, hashedPortGroup(ns))
+		portGroupUUID, err := createPortGroup(nsInfo.exec, ns, hashedPortGroup(ns))
 		if err != nil {
 			return fmt.Errorf("failed to create port_group for %s (%v)", ns, err)
 		}
 		nsInfo.portGroupUUID = portGroupUUID
 	} else {
-		deletePortGroup(hashedPortGroup(ns))
+		deletePortGroup(nsInfo.exec, hashedPortGroup(ns))
 		nsInfo.portGroupUUID = ""
 	}
 	return nil
@@ -393,6 +393,7 @@ func (oc *Controller) createNamespaceLocked(ns string) *namespaceInfo {
 	defer oc.namespacesMutex.Unlock()
 
 	nsInfo := &namespaceInfo{
+		exec:                  oc.exec,
 		networkPolicies:       make(map[string]*namespacePolicy),
 		podExternalRoutes:     make(map[string]map[string]string),
 		multicastEnabled:      false,

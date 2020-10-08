@@ -91,12 +91,10 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 		Output: " table=65, priority=100,reg15=0x2,metadata=0x2 actions=output:1",
 	})
 
-	err := util.SetExec(fexec)
-	Expect(err).NotTo(HaveOccurred())
-
 	nodeSubnetCIDRs := make([]*net.IPNet, len(configs))
 	mgtPortAddrs := make([]*netlink.Addr, len(configs))
 
+	var err error
 	iptV4, iptV6 := util.SetFakeIPTablesHelpers()
 	for i, cfg := range configs {
 		nodeSubnetCIDRs[i] = ovntest.MustParseIPNet(cfg.nodeSubnet)
@@ -130,6 +128,8 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 
 	_, err = config.InitConfig(ctx, fexec, nil)
 	Expect(err).NotTo(HaveOccurred())
+	exec, err := util.NewExecHelper(fexec)
+	Expect(err).NotTo(HaveOccurred())
 
 	nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{fakeClient, egressipv1fake.NewSimpleClientset(), &egressfirewallfake.Clientset{}}, &existingNode)
 	waiter := newStartupWaiter()
@@ -137,7 +137,7 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 	err = testNS.Do(func(ns.NetNS) error {
 		defer GinkgoRecover()
 
-		n := OvnNode{name: nodeName, stopChan: make(chan struct{})}
+		n := OvnNode{exec: exec, name: nodeName, stopChan: make(chan struct{})}
 		err = n.createManagementPort(nodeSubnetCIDRs, nodeAnnotator, waiter)
 		Expect(err).NotTo(HaveOccurred())
 		l, err := netlink.LinkByName(mgtPort)

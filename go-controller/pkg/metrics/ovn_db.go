@@ -261,15 +261,15 @@ func ovnDBSizeMetricsUpdater(direction, database string) {
 	metricDBSize.WithLabelValues(database).Set(float64(fileInfo.Size()))
 }
 
-func ovnE2eTimeStampUpdater(direction, database string) {
+func ovnE2eTimeStampUpdater(exec util.ExecHelper, direction, database string) {
 	var stdout, stderr string
 	var err error
 
 	if direction == "sb" {
-		stdout, stderr, err = util.RunOVNSbctlUnix("--if-exists", "--no-leader-only",
+		stdout, stderr, err = exec.RunOVNSbctlUnix("--if-exists", "--no-leader-only",
 			"get", "SB_Global", ".", "options:e2e_timestamp")
 	} else {
-		stdout, stderr, err = util.RunOVNNbctlUnix("--if-exists", "--no-leader-only",
+		stdout, stderr, err = exec.RunOVNNbctlUnix("--if-exists", "--no-leader-only",
 			"get", "NB_Global", ".", "options:e2e_timestamp")
 	}
 	if err != nil {
@@ -289,14 +289,14 @@ func ovnE2eTimeStampUpdater(direction, database string) {
 	}
 }
 
-func ovnDBMemoryMetricsUpdater(direction, database string) {
+func ovnDBMemoryMetricsUpdater(exec util.ExecHelper, direction, database string) {
 	var stdout, stderr string
 	var err error
 
 	if direction == "sb" {
-		stdout, stderr, err = util.RunOVNSBAppCtl("--timeout=5", "memory/show")
+		stdout, stderr, err = exec.RunOVNSBAppCtl("--timeout=5", "memory/show")
 	} else {
-		stdout, stderr, err = util.RunOVNNBAppCtl("--timeout=5", "memory/show")
+		stdout, stderr, err = exec.RunOVNNBAppCtl("--timeout=5", "memory/show")
 	}
 	if err != nil {
 		klog.Errorf("Failed retrieving memory/show output for %q, stderr: %s, err: (%v)",
@@ -332,24 +332,24 @@ var (
 	sbDbSchemaVersion string
 )
 
-func getOvnDbVersionInfo() {
-	stdout, _, err := util.RunOVSDBClient("-V")
+func getOvnDbVersionInfo(exec util.ExecHelper) {
+	stdout, _, err := exec.RunOVSDBClient("-V")
 	if err == nil && strings.HasPrefix(stdout, "ovsdb-client (Open vSwitch) ") {
 		ovnDbVersion = strings.Fields(stdout)[3]
 	}
 	sockPath := "unix:/var/run/openvswitch/ovnnb_db.sock"
-	stdout, _, err = util.RunOVSDBClient("get-schema-version", sockPath, "OVN_Northbound")
+	stdout, _, err = exec.RunOVSDBClient("get-schema-version", sockPath, "OVN_Northbound")
 	if err == nil {
 		nbDbSchemaVersion = strings.TrimSpace(stdout)
 	}
 	sockPath = "unix:/var/run/openvswitch/ovnsb_db.sock"
-	stdout, _, err = util.RunOVSDBClient("get-schema-version", sockPath, "OVN_Southbound")
+	stdout, _, err = exec.RunOVSDBClient("get-schema-version", sockPath, "OVN_Southbound")
 	if err == nil {
 		sbDbSchemaVersion = strings.TrimSpace(stdout)
 	}
 }
 
-func RegisterOvnDBMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
+func RegisterOvnDBMetrics(exec util.ExecHelper, clientset *kubernetes.Clientset, k8sNodeName string) {
 	err := wait.PollImmediate(1*time.Second, 300*time.Second, func() (bool, error) {
 		return checkPodRunsOnGivenNode(clientset, "name=ovnkube-db", k8sNodeName, false)
 	})
@@ -365,7 +365,7 @@ func RegisterOvnDBMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
 	klog.Info("Found OVN DB Pod running on this node. Registering OVN DB Metrics")
 
 	// get the ovsdb server version info
-	getOvnDbVersionInfo()
+	getOvnDbVersionInfo(exec)
 	// register metrics that will be served off of /metrics path
 	ovnRegistry.MustRegister(metricOVNDBMonitor)
 	ovnRegistry.MustRegister(metricOVNDBSessions)
@@ -387,7 +387,7 @@ func RegisterOvnDBMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
 	))
 	// check if DB is clustered or not
 	dbIsClustered := true
-	_, _, err = util.RunOVSDBTool("db-is-standalone", "/etc/openvswitch/ovnsb_db.db")
+	_, _, err = exec.RunOVSDBTool("db-is-standalone", "/etc/openvswitch/ovnsb_db.db")
 	if err == nil {
 		dbIsClustered = false
 	}
@@ -419,11 +419,11 @@ func RegisterOvnDBMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
 		for {
 			for direction, database := range dirDbMap {
 				if dbIsClustered {
-					ovnDBClusterStatusMetricsUpdater(direction, database)
+					ovnDBClusterStatusMetricsUpdater(exec, direction, database)
 				}
-				ovnDBMemoryMetricsUpdater(direction, database)
+				ovnDBMemoryMetricsUpdater(exec, direction, database)
 				ovnDBSizeMetricsUpdater(direction, database)
-				ovnE2eTimeStampUpdater(direction, database)
+				ovnE2eTimeStampUpdater(exec, direction, database)
 			}
 			time.Sleep(30 * time.Second)
 		}
@@ -448,7 +448,7 @@ type OVNDBClusterStatus struct {
 	connOutErr      float64
 }
 
-func getOVNDBClusterStatusInfo(timeout int, direction, database string) (clusterStatus *OVNDBClusterStatus,
+func getOVNDBClusterStatusInfo(exec util.ExecHelper, timeout int, direction, database string) (clusterStatus *OVNDBClusterStatus,
 	err error) {
 	var stdout, stderr string
 
@@ -460,10 +460,10 @@ func getOVNDBClusterStatusInfo(timeout int, direction, database string) (cluster
 	}()
 
 	if direction == "sb" {
-		stdout, stderr, err = util.RunOVNSBAppCtl(fmt.Sprintf("--timeout=%d", timeout),
+		stdout, stderr, err = exec.RunOVNSBAppCtl(fmt.Sprintf("--timeout=%d", timeout),
 			"cluster/status", database)
 	} else {
-		stdout, stderr, err = util.RunOVNNBAppCtl(fmt.Sprintf("--timeout=%d", timeout),
+		stdout, stderr, err = exec.RunOVNNBAppCtl(fmt.Sprintf("--timeout=%d", timeout),
 			"cluster/status", database)
 	}
 	if err != nil {
@@ -539,8 +539,8 @@ func getOVNDBClusterStatusInfo(timeout int, direction, database string) (cluster
 	return clusterStatus, nil
 }
 
-func ovnDBClusterStatusMetricsUpdater(direction, database string) {
-	clusterStatus, err := getOVNDBClusterStatusInfo(5, direction, database)
+func ovnDBClusterStatusMetricsUpdater(exec util.ExecHelper, direction, database string) {
+	clusterStatus, err := getOVNDBClusterStatusInfo(exec, 5, direction, database)
 	if err != nil {
 		klog.Errorf(err.Error())
 		return

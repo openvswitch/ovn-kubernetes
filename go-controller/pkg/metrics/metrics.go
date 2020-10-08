@@ -75,7 +75,7 @@ func registerCoverageShowMetrics(target string, metricNamespace string, metricSu
 }
 
 // getCoverageShowOutputMap obtains the coverage/show metric values for the specified component.
-func getCoverageShowOutputMap(component string) (map[string]string, error) {
+func getCoverageShowOutputMap(exec util.ExecHelper, component string) (map[string]string, error) {
 	var stdout, stderr string
 	var err error
 
@@ -87,11 +87,11 @@ func getCoverageShowOutputMap(component string) (map[string]string, error) {
 	}()
 
 	if component == ovnController {
-		stdout, stderr, err = util.RunOVNControllerAppCtl("coverage/show")
+		stdout, stderr, err = exec.RunOVNControllerAppCtl("coverage/show")
 	} else if component == ovnNorthd {
-		stdout, stderr, err = util.RunOVNNorthAppCtl("coverage/show")
+		stdout, stderr, err = exec.RunOVNNorthAppCtl("coverage/show")
 	} else if component == ovsVswitchd {
-		stdout, stderr, err = util.RunOvsVswitchdAppCtl("coverage/show")
+		stdout, stderr, err = exec.RunOvsVswitchdAppCtl("coverage/show")
 	} else {
 		return nil, fmt.Errorf("component is unknown, and it isn't %s, %s, or %s",
 			ovnNorthd, ovnController, ovsVswitchd)
@@ -114,10 +114,10 @@ func getCoverageShowOutputMap(component string) (map[string]string, error) {
 
 // coverageShowMetricsUpdater updates the metric
 // by obtaining values from getCoverageShowOutputMap for specified component.
-func coverageShowMetricsUpdater(component string) {
+func coverageShowMetricsUpdater(exec util.ExecHelper, component string) {
 	for {
 		time.Sleep(30 * time.Second)
-		coverageShowOutputMap, err := getCoverageShowOutputMap(component)
+		coverageShowOutputMap, err := getCoverageShowOutputMap(exec, component)
 		if err != nil {
 			klog.Errorf("%s", err.Error())
 			continue
@@ -204,8 +204,8 @@ func StartOVNMetricsServer(bindAddress string) {
 	}, 5*time.Second, utilwait.NeverStop)
 }
 
-func RegisterOvnMetrics(clientset *kubernetes.Clientset, k8sNodeName string) {
-	go RegisterOvnDBMetrics(clientset, k8sNodeName)
-	go RegisterOvnControllerMetrics()
-	go RegisterOvnNorthdMetrics(clientset, k8sNodeName)
+func RegisterOvnMetrics(exec util.ExecHelper, clientset *kubernetes.Clientset, k8sNodeName string) {
+	go RegisterOvnDBMetrics(exec, clientset, k8sNodeName)
+	go RegisterOvnControllerMetrics(exec)
+	go RegisterOvnNorthdMetrics(exec, clientset, k8sNodeName)
 }

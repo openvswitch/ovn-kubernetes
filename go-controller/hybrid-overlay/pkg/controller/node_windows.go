@@ -36,6 +36,7 @@ type NodeController struct {
 // newNodeController returns a node handler that listens for node events
 // so that Add/Update/Delete events are appropriately handled.
 func newNodeController(kube kube.Interface,
+	exec util.ExecHelper,
 	nodeName string,
 	nodeLister listers.NodeLister,
 	podLister listers.PodLister,
