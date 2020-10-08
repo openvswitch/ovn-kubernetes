@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	utilnet "k8s.io/utils/net"
 	"net"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/types"
@@ -28,9 +29,9 @@ type NodeController struct {
 	kube            kube.Interface
 	machineID       string
 	networkID       string
-	localNodeCIDR   *net.IPNet
-	localNodeIP     net.IP
-	remoteSubnetMap map[string]string // Maps a remote node to its remote subnet
+	localNodeCIDRs  []*net.IPNet
+	localNodeIPs    []net.IP
+	remoteSubnetMap map[string][]string // Maps a remote node to its remote subnets
 }
 
 // newNodeController returns a node handler that listens for node events
@@ -66,7 +67,7 @@ func newNodeController(kube kube.Interface,
 	return &NodeController{
 		kube:            kube,
 		machineID:       node.Status.NodeInfo.MachineID,
-		remoteSubnetMap: make(map[string]string),
+		remoteSubnetMap: make(map[string][]string),
 	}, nil
 }
 
@@ -100,7 +101,7 @@ func ensureBaseNetwork() error {
 	_, fakeSubnetCIDR, _ := net.ParseCIDR("100.64.0.0/30")
 	fakeSubnetGateway := net.ParseIP("100.64.0.2")
 
-	baseNetwork := GetExistingNetwork(baseNetworkName, fakeSubnetCIDR.String(), fakeSubnetGateway.String())
+	baseNetwork := GetExistingNetwork(baseNetworkName, []string{fakeSubnetCIDR.String()}, []string{fakeSubnetGateway.String()})
 	if baseNetwork != nil {
 		// nothing to do
 		return nil
@@ -153,11 +154,12 @@ func (n *NodeController) AddNode(node *kapi.Node) error {
 		// Initialize the local node (or reconfigure it if the addresses
 		// have changed) by creating the network object and setting up
 		// all the VXLAN tunnels towards other nodes
-		cidr, nodeIP := getNodeSubnetAndIP(node)
-		if (cidr != nil && !houtil.SameIPNet(cidr, n.localNodeCIDR)) || (nodeIP != nil && nodeIP.Equal(n.localNodeIP)) {
-			n.localNodeCIDR = cidr
-			n.localNodeIP = nodeIP
-			if err := n.initSelf(node, cidr); err != nil {
+		cidrs, nodeIPs := getNodeSubnetAndIP(node)
+		if (cidrs != nil && !houtil.MatchIPNets(cidrs, n.localNodeCIDRs)) ||
+			(nodeIPs != nil && !houtil.MatchIPs(nodeIPs, n.localNodeIPs)) {
+			n.localNodeCIDRs = cidrs
+			n.localNodeIPs = nodeIPs
+			if err := n.initSelf(node, cidrs); err != nil {
 				return fmt.Errorf("failed to initialize node: %v", err)
 			}
 		}
@@ -169,8 +171,8 @@ func (n *NodeController) AddNode(node *kapi.Node) error {
 		return nil
 	}
 
-	cidr, nodeIP, drMAC, err := getNodeDetails(node)
-	if cidr == nil || nodeIP == nil || drMAC == nil {
+	cidrs, nodeIPs, drMAC, err := getNodeDetails(node)
+	if cidrs == nil || nodeIPs == nil || drMAC == nil {
 		klog.V(5).Infof("Cleaning up hybrid overlay resources for node %q because: %v", node.Name, err)
 		n.DeleteNode(node)
 		return err
@@ -182,22 +184,36 @@ func (n *NodeController) AddNode(node *kapi.Node) error {
 		return fmt.Errorf("error getting HCN network: %v", err)
 	}
 
-	klog.Infof("Adding a remote subnet route for CIDR '%s' (node: '%s', remote node address: %s, distributed router MAC: %s, VNI: %v).",
-		cidr.String(), node.Name, nodeIP.String(), drMAC.String(), types.HybridOverlayVNI)
-	networkPolicySettings := hcn.RemoteSubnetRoutePolicySetting{
-		// VXLAN virtual network Identifier. Is expected to be 4097 or higher on Windows
-		IsolationId: types.HybridOverlayVNI,
-		// Distributed router/gateway MAC address
-		DistributedRouterMacAddress: drMAC.String(),
-		// Host IP address of the node
-		ProviderAddress: nodeIP.String(),
-		// Prefix used on the destination node
-		DestinationPrefix: cidr.String(),
+	var remoteSubnets []string
+	remoteSubnets = make([]string, 0)
+	for _, nodeIP := range nodeIPs {
+		isIPv6 := utilnet.IsIPv6(nodeIP)
+		cidr, err := util.MatchIPFamily(isIPv6, cidrs)
+		if err != nil {
+			klog.Errorf("Mismatch between node subnets and IP addresses for node %s", node.Name)
+			return fmt.Errorf("mismatch between node subnets and IP addresses for node %s", node.Name)
+		}
+		klog.Infof("Adding a remote subnet route for CIDR '%s' (node: '%s', remote node address: %s, distributed router MAC: %s, VNI: %v).",
+			cidr.String(), node.Name, nodeIP.String(), drMAC.String(), types.HybridOverlayVNI)
+		networkPolicySettings := hcn.RemoteSubnetRoutePolicySetting{
+			// VXLAN virtual network Identifier. Is expected to be 4097 or higher on Windows
+			IsolationId: types.HybridOverlayVNI,
+			// Distributed router/gateway MAC address
+			DistributedRouterMacAddress: drMAC.String(),
+			// Host IP address of the node
+			ProviderAddress: nodeIP.String(),
+			// Prefix used on the destination node
+			DestinationPrefix: cidr.String(),
+		}
+
+		remoteSubnets = append(remoteSubnets, cidr.String())
+		err = AddRemoteSubnetPolicy(network, &networkPolicySettings)
+		if err != nil {
+			return err
+		}
 	}
-
-	n.remoteSubnetMap[node.Status.NodeInfo.MachineID] = cidr.String()
-
-	return AddRemoteSubnetPolicy(network, &networkPolicySettings)
+	n.remoteSubnetMap[node.Status.NodeInfo.MachineID] = remoteSubnets
+	return nil
 }
 
 // Delete handles node deletions
@@ -228,14 +244,16 @@ func (n *NodeController) DeleteNode(node *kapi.Node) error {
 		return nil
 	}
 
-	nodeSubnet, ok := n.remoteSubnetMap[node.Status.NodeInfo.MachineID]
+	nodeSubnets, ok := n.remoteSubnetMap[node.Status.NodeInfo.MachineID]
 	if !ok {
-		return fmt.Errorf("can't retrieve the host subnet from the '%s' node's annotations", node.Name)
+		return fmt.Errorf("can't retrieve the host subnets from the '%s' node's annotations", node.Name)
 	}
 
-	if err := RemoveRemoteSubnetPolicy(network, nodeSubnet); err != nil {
-		return fmt.Errorf("error removing subnet policy '%s' node's annotations from network '%s' on node '%s'. Error: %v",
-			nodeSubnet, n.networkID, node.Name, err)
+	for _, nodeSubnet := range nodeSubnets {
+		if err := RemoveRemoteSubnetPolicy(network, nodeSubnet); err != nil {
+			return fmt.Errorf("error removing subnet policy '%s' node's annotations from network '%s' on node '%s'. Error: %v",
+				nodeSubnet, n.networkID, node.Name, err)
+		}
 	}
 
 	delete(n.remoteSubnetMap, node.Status.NodeInfo.MachineID)
@@ -246,32 +264,41 @@ func (n *NodeController) DeleteNode(node *kapi.Node) error {
 //  1. Setting up this node and its VXLAN extension for talking to other nodes
 //  2. Setting back annotations about its VTEP and gateway MAC address to its own node object
 //  3. Initializing every VXLAN tunnels toward other nodes
-func (n *NodeController) initSelf(node *kapi.Node, nodeSubnet *net.IPNet) error {
+func (n *NodeController) initSelf(node *kapi.Node, nodeSubnets []*net.IPNet) error {
 	// The distributed router IP (i.e. the gateway, from a container perspective)
 	// is hardcoded here to be the first IP on the subnet.
 	// TODO: could be made configurable as Windows doesn't have any restrictions
 	// as to what this gateway address should be.
-	gatewayAddress := util.NextIP(nodeSubnet.IP)
+	var gatewayAddresses, subnets []string
+	var subnetsInfo []SubnetInfo
+
+	for _, nodeSubnet := range nodeSubnets {
+		subnets = append(subnets, nodeSubnet.String())
+		gatewayAddress := util.NextIP(nodeSubnet.IP)
+		gatewayAddresses = append(gatewayAddresses, gatewayAddress.String())
+		subnetsInfo = append(subnetsInfo, SubnetInfo{
+			AddressPrefix:  nodeSubnet,
+			GatewayAddress: gatewayAddress,
+			VSID:           types.HybridOverlayVNI,
+		})
+	}
 
 	if config.HybridOverlay.VXLANPort > 65535 {
 		return fmt.Errorf("the hybrid overlay VXLAN port cannot be greater than 65535. Current value: %v", config.HybridOverlay.VXLANPort)
 	}
 
-	network := GetExistingNetwork(networkName, nodeSubnet.String(), gatewayAddress.String())
+	network := GetExistingNetwork(networkName, subnets, gatewayAddresses)
 	if network == nil {
 		// Create the overlay network
 		networkInfo := NetworkInfo{
 			AutomaticDNS: true,
 			IsPersistent: false,
 			Name:         networkName,
-			Subnets: []SubnetInfo{{
-				AddressPrefix:  nodeSubnet,
-				GatewayAddress: gatewayAddress,
-				VSID:           types.HybridOverlayVNI,
-			}},
-			VXLANPort: uint16(config.HybridOverlay.VXLANPort),
+			Subnets:      subnetsInfo,
+			VXLANPort:    uint16(config.HybridOverlay.VXLANPort),
 		}
-		klog.Infof("Creating overlay network '%s' (address prefix %v) with gateway address: %v", networkName, nodeSubnet, gatewayAddress)
+		klog.Infof("Creating overlay network '%s' (address prefix %v) with gateway address: %v", networkName,
+			nodeSubnets, gatewayAddresses)
 
 		// Retrieve the network schema object
 		networkSchema, err := networkInfo.GetHostComputeNetworkConfig()
@@ -292,7 +319,7 @@ func (n *NodeController) initSelf(node *kapi.Node, nodeSubnet *net.IPNet) error 
 		}
 	} else {
 		klog.Infof("Reusing existing overlay network '%s' (address prefix %v, VXLAN port = %d) with gateway address: %v.",
-			networkName, nodeSubnet, config.HybridOverlay.VXLANPort, gatewayAddress)
+			networkName, nodeSubnets, config.HybridOverlay.VXLANPort, gatewayAddresses)
 
 		// TODO: there is a better approach than clearing all the remote
 		// subnet policies, and then re-creating the ones still applicable.

@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/tools/cache"
+	utilnet "k8s.io/utils/net"
 )
 
 // ParseHybridOverlayHostSubnet returns the parsed hybrid overlay hostsubnet if
@@ -52,14 +53,25 @@ func SameIPNet(a, b *net.IPNet) bool {
 	return a.String() == b.String()
 }
 
-// GetNodeInternalIP returns the first NodeInternalIP address of the node
-func GetNodeInternalIP(node *kapi.Node) (string, error) {
+// GetNodeInternalIPs returns the first v4 and/or v6 NodeInternalIP address of the node
+func GetNodeInternalIPs(node *kapi.Node) ([]string, error) {
+	var v4AddrFound, v6AddrFound bool
+	var ipAddrs []string
 	for _, addr := range node.Status.Addresses {
-		if addr.Type == kapi.NodeInternalIP {
-			return addr.Address, nil
+		if !v4AddrFound && addr.Type == kapi.NodeInternalIP && !utilnet.IsIPv6String(addr.Address) {
+			ipAddrs = append(ipAddrs, addr.Address)
+			v4AddrFound = true
+		}
+		if !v6AddrFound && addr.Type == kapi.NodeInternalIP && utilnet.IsIPv6String(addr.Address) {
+			ipAddrs = append(ipAddrs, addr.Address)
+			v6AddrFound = true
 		}
 	}
-	return "", fmt.Errorf("failed to read node %q InternalIP", node.Name)
+
+	if ipAddrs != nil {
+		return ipAddrs, nil
+	}
+	return nil, fmt.Errorf("failed to read node %q InternalIP", node.Name)
 }
 
 // StartNodeWatch starts a node event handler
@@ -97,4 +109,48 @@ func CopyNamespaceAnnotationsToPod(k kube.Interface, ns *kapi.Namespace, pod *ka
 		}
 	}
 	return annotator.Run()
+}
+
+// MatchIPNets compares two IPNet slices and return true if they are equal.
+// The elements need not be in the same order.
+func MatchIPNets(a, b []*net.IPNet) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var matchFound bool
+	for _, firstIPNet := range a {
+		matchFound = false
+		for _, secondIPNet := range b {
+			if SameIPNet(firstIPNet, secondIPNet) {
+				matchFound = true
+				break
+			}
+		}
+		if !matchFound {
+			return false
+		}
+	}
+	return true
+}
+
+// MatchIPs compares two IP slices and return true if they are equal.
+// The elements need not be in the same order.
+func MatchIPs(a, b []net.IP) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var matchFound bool
+	for _, firstIP := range a {
+		matchFound = false
+		for _, secondIP := range b {
+			if firstIP.Equal(secondIP) {
+				matchFound = true
+				break
+			}
+		}
+		if !matchFound {
+			return false
+		}
+	}
+	return true
 }

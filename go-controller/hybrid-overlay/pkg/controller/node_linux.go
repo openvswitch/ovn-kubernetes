@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog"
+	utilnet "k8s.io/utils/net"
 )
 
 const (
@@ -289,8 +290,8 @@ func (n *NodeController) hybridOverlayNodeUpdate(node *kapi.Node) error {
 		return nil
 	}
 
-	cidr, nodeIP, drMAC, err := getNodeDetails(node)
-	if cidr == nil || nodeIP == nil || drMAC == nil {
+	cidrs, nodeIPs, drMAC, err := getNodeDetails(node)
+	if cidrs == nil || nodeIPs == nil || drMAC == nil {
 		klog.V(5).Infof("Cleaning up hybrid overlay resources for node %q because: %v", node.Name, err)
 		return n.DeleteNode(node)
 	}
@@ -305,28 +306,39 @@ func (n *NodeController) hybridOverlayNodeUpdate(node *kapi.Node) error {
 	// Distributed Router MAC ARP responder flow; responds to ARP requests by OVN for
 	// any IP address within this node's assigned subnet and returns our hybrid overlay
 	// port's MAC address.
-	flows = append(flows,
-		fmt.Sprintf("cookie=0x%s,table=0,priority=100,arp,in_port=ext,arp_tpa=%s,"+
-			"actions=move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],"+
-			"mod_dl_src:%s,"+
-			"load:0x2->NXM_OF_ARP_OP[],"+
-			"move:NXM_NX_ARP_SHA[]->NXM_NX_ARP_THA[],"+
-			"load:0x%s->NXM_NX_ARP_SHA[],"+
-			"move:NXM_OF_ARP_TPA[]->NXM_NX_REG0[],"+
-			"move:NXM_OF_ARP_SPA[]->NXM_OF_ARP_TPA[],"+
-			"move:NXM_NX_REG0[]->NXM_OF_ARP_SPA[],"+
-			"IN_PORT",
-			cookie, cidr.String(), drMAC.String(), drMACRaw))
-	// Send all flows for the remote node's assigned subnet to that node via the VXLAN tunnel.
-	// Windows hybrid overlay implementation requires that we set the destination MAC address
-	// to the node's Distributed Router MAC.
-	flows = append(flows,
-		fmt.Sprintf("cookie=0x%s,table=0,priority=100,ip,nw_dst=%s,"+
-			"actions=load:%d->NXM_NX_TUN_ID[0..31],"+
-			"set_field:%s->tun_dst,"+
-			"set_field:%s->eth_dst,"+
-			"output:"+extVXLANName,
-			cookie, cidr.String(), hotypes.HybridOverlayVNI, nodeIP.String(), drMAC.String()))
+	for _, ip := range nodeIPs {
+		//TODO : DUAL-STACK : Neighbour discovery for ipv6?
+		isIPv6 := utilnet.IsIPv6(ip)
+		cidr, err := util.MatchIPFamily(isIPv6, cidrs)
+		if err != nil {
+			klog.Errorf("Mismatch between node subnets and IP addresses for node %s", node.Name)
+			return fmt.Errorf("mismatch between node subnets and IP addresses for node %s", node.Name)
+		}
+		if !isIPv6 {
+			flows = append(flows,
+				fmt.Sprintf("cookie=0x%s,table=0,priority=100,arp,in_port=ext,arp_tpa=%s,"+
+					"actions=move:NXM_OF_ETH_SRC[]->NXM_OF_ETH_DST[],"+
+					"mod_dl_src:%s,"+
+					"load:0x2->NXM_OF_ARP_OP[],"+
+					"move:NXM_NX_ARP_SHA[]->NXM_NX_ARP_THA[],"+
+					"load:0x%s->NXM_NX_ARP_SHA[],"+
+					"move:NXM_OF_ARP_TPA[]->NXM_NX_REG0[],"+
+					"move:NXM_OF_ARP_SPA[]->NXM_OF_ARP_TPA[],"+
+					"move:NXM_NX_REG0[]->NXM_OF_ARP_SPA[],"+
+					"IN_PORT",
+					cookie, cidr.String(), drMAC.String(), drMACRaw))
+		}
+		// Send all flows for the remote node's assigned subnet to that node via the VXLAN tunnel.
+		// Windows hybrid overlay implementation requires that we set the destination MAC address
+		// to the node's Distributed Router MAC.
+		flows = append(flows,
+			fmt.Sprintf("cookie=0x%s,table=0,priority=100,ip,nw_dst=%s,"+
+				"actions=load:%d->NXM_NX_TUN_ID[0..31],"+
+				"set_field:%s->tun_dst,"+
+				"set_field:%s->eth_dst,"+
+				"output:"+extVXLANName,
+				cookie, cidr.String(), hotypes.HybridOverlayVNI, ip.String(), drMAC.String()))
+	}
 
 	n.updateFlowCacheEntry(cookie, flows, false)
 	n.requestFlowSync()

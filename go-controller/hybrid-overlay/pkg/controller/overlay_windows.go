@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"net"
 
 	"github.com/Microsoft/hcsshim/hcn"
@@ -241,22 +242,30 @@ func GetGatewayAddress(subnet *hcn.Subnet) string {
 	return ""
 }
 
-func GetExistingNetwork(networkName string, expectedAddressPrefix string, expectedGW string) *hcn.HostComputeNetwork {
+func GetExistingNetwork(networkName string, expectedAddressPrefix []string, expectedGW []string) *hcn.HostComputeNetwork {
 	existingNetwork, err := hcn.GetNetworkByName(networkName)
 	if err != nil || existingNetwork.Type != hcn.Overlay {
 		return nil
 	}
 
+	existingSubnets := sets.String{}
+	existingGatewayAddresses := sets.String{}
 	for _, existingIpams := range existingNetwork.Ipams {
 		for _, existingSubnet := range existingIpams.Subnets {
 			gatewayAddress := GetGatewayAddress(&existingSubnet)
-			if existingSubnet.IpAddressPrefix == expectedAddressPrefix && gatewayAddress == expectedGW {
-				return existingNetwork
-			}
+			existingSubnets.Insert(existingSubnet.IpAddressPrefix)
+			existingGatewayAddresses.Insert(gatewayAddress)
 		}
 	}
-
-	return nil
+	if existingSubnets.Len() != len(expectedAddressPrefix) {
+		return nil
+	}
+	for index := range expectedAddressPrefix {
+		if !existingSubnets.Has(expectedAddressPrefix[index]) && !existingGatewayAddresses.Has(expectedGW[index]) {
+			return nil
+		}
+	}
+	return existingNetwork
 }
 
 func DuplicatePersistentIPRoutes() error {

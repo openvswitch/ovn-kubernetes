@@ -42,9 +42,9 @@ func nodeChanged(old, new interface{}) bool {
 	oldNode := old.(*kapi.Node)
 	newNode := new.(*kapi.Node)
 
-	oldCidr, oldNodeIP, oldDrMAC, _ := getNodeDetails(oldNode)
-	newCidr, newNodeIP, newDrMAC, _ := getNodeDetails(newNode)
-	return !reflect.DeepEqual(oldCidr, newCidr) || !reflect.DeepEqual(oldNodeIP, newNodeIP) || !reflect.DeepEqual(oldDrMAC, newDrMAC)
+	oldCidrs, oldNodeIPs, oldDrMAC, _ := getNodeDetails(oldNode)
+	newCidrs, newNodeIPs, newDrMAC, _ := getNodeDetails(newNode)
+	return !houtil.MatchIPNets(oldCidrs, newCidrs) || !houtil.MatchIPs(oldNodeIPs, newNodeIPs) || !reflect.DeepEqual(oldDrMAC, newDrMAC)
 }
 
 // podChanged returns true if any relevant pod attributes changed
@@ -172,45 +172,51 @@ func (n *Node) Run(stopCh <-chan struct{}) {
 
 // getNodeSubnetAndIP returns the node's hybrid overlay subnet and the node's
 // first InternalIP, or nil if the subnet or node IP is invalid
-func getNodeSubnetAndIP(node *kapi.Node) (*net.IPNet, net.IP) {
-	var cidr *net.IPNet
+func getNodeSubnetAndIP(node *kapi.Node) ([]*net.IPNet, []net.IP) {
+	var ips []net.IP
 
 	// Parse Linux node OVN hostsubnet annotation first
 	cidrs, _ := util.ParseNodeHostSubnetAnnotation(node)
-	if cidrs != nil {
-		// FIXME DUAL-STACK
-		cidr = cidrs[0]
-	} else {
+	if cidrs == nil {
 		// Otherwise parse the hybrid overlay node subnet annotation
+		// TODO : DUAL-STACK change the code when HO annotations for multiple subnets are in
 		subnet, ok := node.Annotations[types.HybridOverlayNodeSubnet]
 		if !ok {
-
 			klog.V(5).Infof("Missing node %q node subnet annotation", node.Name)
 			return nil, nil
 		}
-		var err error
-		_, cidr, err = net.ParseCIDR(subnet)
+		_, cidr, err := net.ParseCIDR(subnet)
 		if err != nil {
 			klog.Errorf("Error parsing node %q subnet %q: %v", node.Name, subnet, err)
 			return nil, nil
 		}
+		cidrs = append(cidrs, cidr)
 	}
 
-	nodeIP, err := houtil.GetNodeInternalIP(node)
+	ipAddrs, err := houtil.GetNodeInternalIPs(node)
 	if err != nil {
 		klog.Errorf("Error getting node %q internal IP: %v", node.Name, err)
 		return nil, nil
 	}
+	// Return an error if any of the internal addresses are missing in case of dual stack
+	if len(cidrs) == 2 && len(ipAddrs) != 2 {
+		klog.Errorf("Error getting node %q internal IP: %v", node.Name, err)
+		return nil, nil
+	}
 
-	return cidr, net.ParseIP(nodeIP)
+	ips = make([]net.IP, 0)
+	for _, ipAddr := range ipAddrs {
+		ips = append(ips, net.ParseIP(ipAddr))
+	}
+	return cidrs, ips
 }
 
-// getNodeDetails returns the node's hybrid overlay subnet, first InternalIP,
+// getNodeDetails returns the node's hybrid overlay subnets, first InternalIPs,
 // and the distributed router MAC (DRMAC), or nil if any of the addresses are
 // missing or invalid.
-func getNodeDetails(node *kapi.Node) (*net.IPNet, net.IP, net.HardwareAddr, error) {
-	cidr, ip := getNodeSubnetAndIP(node)
-	if cidr == nil || ip == nil {
+func getNodeDetails(node *kapi.Node) ([]*net.IPNet, []net.IP, net.HardwareAddr, error) {
+	cidrs, ips := getNodeSubnetAndIP(node)
+	if cidrs == nil || ips == nil {
 		return nil, nil, nil, fmt.Errorf("missing node subnet and/or node IP")
 	}
 
@@ -223,7 +229,7 @@ func getNodeDetails(node *kapi.Node) (*net.IPNet, net.IP, net.HardwareAddr, erro
 		return nil, nil, nil, fmt.Errorf("invalid distributed router MAC %q: %v", drMACString, err)
 	}
 
-	return cidr, ip, drMAC, nil
+	return cidrs, ips, drMAC, nil
 }
 
 func getPodDetails(pod *kapi.Pod) ([]*net.IPNet, net.HardwareAddr, error) {
