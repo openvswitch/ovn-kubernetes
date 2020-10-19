@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ovnkube-admission-controller
+  namespace: ovn-kubernetes
+  labels:
+    app: ovnkube-admission-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ovnkube-admission-controller
+  template:
+    metadata:
+      labels:
+        app: ovnkube-admission-controller
+    spec:
+      containers:
+      - name: server
+        image: "{{ ovn_image | default('docker.io/ovnkube/ovn-daemonset:latest') }}"
+        imagePullPolicy: "{{ ovn_image_pull_policy | default('IfNotPresent') }}"
+        command: ["ovnkube-admission-controller"]
+        ports:
+        - containerPort: 8443
+          name: api
+        volumeMounts:
+        - name: ovnkube-admission-controller-certs
+          mountPath: /run/secrets/tls
+          readOnly: true
+      volumes:
+      - name: ovnkube-admission-controller-certs
+        secret:
+          secretName: ovnkube-admission-controller-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ovnkube-admission-controller
+  namespace: ovn-kubernetes
+spec:
+  selector:
+    app: ovnkube-admission-controller
+  ports:
+    - port: 443
+      targetPort: api
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: ovn-kubernetes.k8s.ovn.org
+webhooks:
+  - name: ovnkube-admission-controller.egressips.svc
+    clientConfig:
+      service:
+        name: ovnkube-admission-controller
+        namespace: ovn-kubernetes
+        path: "/egressips"
+      {% if ca_pem_64 != '' %}
+      caBundle: "{{ ca_pem_64 }}"
+      {% endif %}
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["k8s.ovn.org"]
+        apiVersions: ["v1"]
+        resources: ["egressips"]
+        scope: "Cluster"
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    timeoutSeconds: 5

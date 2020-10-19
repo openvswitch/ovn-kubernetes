@@ -23,6 +23,7 @@ kubeadmConfigPatches:
     name: config
   apiServer:
     extraArgs:
+      "enable-admission-plugins": "ValidatingAdmissionWebhook"
       "v": "{{ cluster_log_level }}"
   controllerManager:
     extraArgs:

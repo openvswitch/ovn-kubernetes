@@ -452,7 +452,16 @@ build_ovn_image() {
 
 create_ovn_kube_manifests() {
   pushd ../dist/images
-  ./daemonset.sh \
+  
+  tmp_admission_dir=$(mktemp -d)
+  cp gen_admission_keys.sh ${tmp_admission_dir}
+
+  pushd ${tmp_admission_dir}
+  sh gen_admission_keys.sh
+  ca_pem_b64="$(openssl base64 -A <"ca.crt")"
+  popd
+
+./daemonset.sh \
     --image="${OVN_IMAGE}" \
     --net-cidr="${NET_CIDR}" \
     --svc-cidr="${SVC_CIDR}" \
@@ -475,6 +484,7 @@ create_ovn_kube_manifests() {
     --egress-ip-enable=true \
     --v4-join-subnet="${JOIN_SUBNET_IPV4}" \
     --v6-join-subnet="${JOIN_SUBNET_IPV6}"
+    --admission-ca-pem-b64=${ca_pem_b64}
   popd
 }
 
@@ -487,6 +497,13 @@ install_ovn() {
   run_kubectl apply -f k8s.ovn.org_egressfirewalls.yaml
   run_kubectl apply -f k8s.ovn.org_egressips.yaml
   run_kubectl apply -f ovn-setup.yaml
+  run_kubectl apply -f ovnkube-admission.yaml 
+pushd ${tmp_admission_dir}
+run_kubectl -n ovn-kubernetes create secret tls ovnkube-admission-controller-secret \
+    --cert "admission-server-tls.crt" \
+    --key "admission-server-tls.key"
+popd 
+rm -rf ${tmp_admission_dir}
   MASTER_NODES=$(kind get nodes --name "${KIND_CLUSTER_NAME}" | sort | head -n "${KIND_NUM_MASTER}")
   # We want OVN HA not Kubernetes HA
   # leverage the kubeadm well-known label node-role.kubernetes.io/master=
