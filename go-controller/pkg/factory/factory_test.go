@@ -29,13 +29,13 @@ import (
 	egressip "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 func TestFactory(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Watch Factory Suite")
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Watch Factory Suite")
 }
 
 func newObjectMeta(name, namespace string) metav1.ObjectMeta {
@@ -196,7 +196,7 @@ func (c *handlerCalls) getDeleted() int {
 	return int(atomic.LoadInt32(&c.deleted))
 }
 
-var _ = Describe("Watch Factory Operations", func() {
+var _ = ginkgo.Describe("Watch Factory Operations", func() {
 	var (
 		ovnClientset                              *util.OVNClientset
 		fakeClient                                *fake.Clientset
@@ -220,7 +220,7 @@ var _ = Describe("Watch Factory Operations", func() {
 		err                                       error
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
@@ -319,73 +319,73 @@ var _ = Describe("Watch Factory Operations", func() {
 		})
 	})
 
-	AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		wf.Shutdown()
 		if wf.efFactory != nil {
 			wf.ShutdownEgressFirewallWatchFactory()
 		}
 	})
 
-	Context("when a processExisting is given", func() {
+	ginkgo.Context("when a processExisting is given", func() {
 		testExisting := func(objType reflect.Type, namespace string, sel labels.Selector) {
 			wf, err = NewMasterWatchFactory(ovnClientset)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = wf.InitializeEgressFirewallWatchFactory()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			h := wf.addHandler(objType, namespace, sel,
 				cache.ResourceEventHandlerFuncs{},
 				func(objs []interface{}) {
-					defer GinkgoRecover()
-					Expect(len(objs)).To(Equal(1))
+					defer ginkgo.GinkgoRecover()
+					gomega.Expect(len(objs)).To(gomega.Equal(1))
 				})
-			Expect(h).NotTo(BeNil())
+			gomega.Expect(h).NotTo(gomega.BeNil())
 			wf.removeHandler(objType, h)
 		}
 
-		It("is called for each existing pod", func() {
+		ginkgo.It("is called for each existing pod", func() {
 			pods = append(pods, newPod("pod1", "default"))
 			testExisting(podType, "", nil)
 		})
 
-		It("is called for each existing namespace", func() {
+		ginkgo.It("is called for each existing namespace", func() {
 			namespaces = append(namespaces, newNamespace("default"))
 			testExisting(namespaceType, "", nil)
 		})
 
-		It("is called for each existing node", func() {
+		ginkgo.It("is called for each existing node", func() {
 			nodes = append(nodes, newNode("default"))
 			testExisting(nodeType, "", nil)
 		})
 
-		It("is called for each existing policy", func() {
+		ginkgo.It("is called for each existing policy", func() {
 			policies = append(policies, newPolicy("denyall", "default"))
 			testExisting(policyType, "", nil)
 		})
 
-		It("is called for each existing endpoints", func() {
+		ginkgo.It("is called for each existing endpoints", func() {
 			endpoints = append(endpoints, newEndpoints("myendpoint", "default"))
 			testExisting(endpointsType, "", nil)
 		})
 
-		It("is called for each existing service", func() {
+		ginkgo.It("is called for each existing service", func() {
 			services = append(services, newService("myservice", "default"))
 			testExisting(serviceType, "", nil)
 		})
 
-		It("is called for each existing egressFirewall", func() {
+		ginkgo.It("is called for each existing egressFirewall", func() {
 			egressFirewalls = append(egressFirewalls, newEgressFirewall("myEgressFirewall", "default"))
 			testExisting(egressFirewallType, "", nil)
 		})
-		It("is called for each existing CRDS", func() {
+		ginkgo.It("is called for each existing CRDS", func() {
 			crds = append(crds, newCRD("myCRD", ""))
 			testExisting(crdType, "", nil)
 		})
-		It("is called for each existing egressIP", func() {
+		ginkgo.It("is called for each existing egressIP", func() {
 			egressIPs = append(egressIPs, newEgressIP("myEgressIP", "default"))
 			testExisting(egressIPType, "", nil)
 		})
 
-		It("is called for each existing pod that matches a given namespace and label", func() {
+		ginkgo.It("is called for each existing pod that matches a given namespace and label", func() {
 			pod := newPod("pod1", "default")
 			pod.ObjectMeta.Labels["blah"] = "foobar"
 			pods = append(pods, pod)
@@ -395,18 +395,18 @@ var _ = Describe("Watch Factory Operations", func() {
 					MatchLabels: map[string]string{"blah": "foobar"},
 				},
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			testExisting(podType, "default", sel)
 		})
 	})
 
-	Context("when existing items are known to the informer", func() {
+	ginkgo.Context("when existing items are known to the informer", func() {
 		testExisting := func(objType reflect.Type) {
 			wf, err = NewMasterWatchFactory(ovnClientset)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = wf.InitializeEgressFirewallWatchFactory()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var addCalls int32
 			h := wf.addHandler(objType, "", nil,
 				cache.ResourceEventHandlerFuncs{
@@ -416,69 +416,69 @@ var _ = Describe("Watch Factory Operations", func() {
 					UpdateFunc: func(old, new interface{}) {},
 					DeleteFunc: func(obj interface{}) {},
 				}, nil)
-			Expect(int(addCalls)).To(Equal(2))
+			gomega.Expect(int(addCalls)).To(gomega.Equal(2))
 			wf.removeHandler(objType, h)
 		}
 
-		It("calls ADD for each existing pod", func() {
+		ginkgo.It("calls ADD for each existing pod", func() {
 			pods = append(pods, newPod("pod1", "default"))
 			pods = append(pods, newPod("pod2", "default"))
 			testExisting(podType)
 		})
 
-		It("calls ADD for each existing namespace", func() {
+		ginkgo.It("calls ADD for each existing namespace", func() {
 			namespaces = append(namespaces, newNamespace("default"))
 			namespaces = append(namespaces, newNamespace("default2"))
 			testExisting(namespaceType)
 		})
 
-		It("calls ADD for each existing node", func() {
+		ginkgo.It("calls ADD for each existing node", func() {
 			nodes = append(nodes, newNode("default"))
 			nodes = append(nodes, newNode("default2"))
 			testExisting(nodeType)
 		})
 
-		It("calls ADD for each existing policy", func() {
+		ginkgo.It("calls ADD for each existing policy", func() {
 			policies = append(policies, newPolicy("denyall", "default"))
 			policies = append(policies, newPolicy("denyall2", "default"))
 			testExisting(policyType)
 		})
 
-		It("calls ADD for each existing endpoints", func() {
+		ginkgo.It("calls ADD for each existing endpoints", func() {
 			endpoints = append(endpoints, newEndpoints("myendpoint", "default"))
 			endpoints = append(endpoints, newEndpoints("myendpoint2", "default"))
 			testExisting(endpointsType)
 		})
 
-		It("calls ADD for each existing service", func() {
+		ginkgo.It("calls ADD for each existing service", func() {
 			services = append(services, newService("myservice", "default"))
 			services = append(services, newService("myservice2", "default"))
 			testExisting(serviceType)
 		})
-		It("calls ADD for each existing egressFirewall", func() {
+		ginkgo.It("calls ADD for each existing egressFirewall", func() {
 			egressFirewalls = append(egressFirewalls, newEgressFirewall("myFirewall", "default"))
 			egressFirewalls = append(egressFirewalls, newEgressFirewall("myFirewall1", "default"))
 			testExisting(egressFirewallType)
 		})
-		It("calls ADD for each existing CRD", func() {
+		ginkgo.It("calls ADD for each existing CRD", func() {
 			crds = append(crds, newCRD("crd1", ""))
 			crds = append(crds, newCRD("crd2", ""))
 			testExisting(crdType)
 		})
-		It("calls ADD for each existing egressIP", func() {
+		ginkgo.It("calls ADD for each existing egressIP", func() {
 			egressIPs = append(egressIPs, newEgressIP("myEgressIP", "default"))
 			egressIPs = append(egressIPs, newEgressIP("myEgressIP1", "default"))
 			testExisting(egressIPType)
 		})
 	})
 
-	Context("when EgressIP is disabled", func() {
+	ginkgo.Context("when EgressIP is disabled", func() {
 		testExisting := func(objType reflect.Type) {
 			wf, err = NewMasterWatchFactory(ovnClientset)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(wf.informers).NotTo(HaveKey(objType))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(wf.informers).NotTo(gomega.HaveKey(objType))
 		}
-		It("does not contain Egress IP informer", func() {
+		ginkgo.It("does not contain Egress IP informer", func() {
 			config.OVNKubernetesFeature.EnableEgressIP = false
 			testExisting(egressIPType)
 		})
@@ -488,22 +488,22 @@ var _ = Describe("Watch Factory Operations", func() {
 		calls := handlerCalls{}
 		h := wf.addHandler(objType, namespace, sel, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				atomic.AddInt32(&calls.added, 1)
 				funcs.AddFunc(obj)
 			},
 			UpdateFunc: func(old, new interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				atomic.AddInt32(&calls.updated, 1)
 				funcs.UpdateFunc(old, new)
 			},
 			DeleteFunc: func(obj interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				atomic.AddInt32(&calls.deleted, 1)
 				funcs.DeleteFunc(obj)
 			},
 		}, nil)
-		Expect(h).NotTo(BeNil())
+		gomega.Expect(h).NotTo(gomega.BeNil())
 		return h, &calls
 	}
 
@@ -511,43 +511,43 @@ var _ = Describe("Watch Factory Operations", func() {
 		return addFilteredHandler(wf, objType, "", nil, funcs)
 	}
 
-	It("responds to pod add/update/delete events", func() {
+	ginkgo.It("responds to pod add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newPod("pod1", "default")
 		h, c := addHandler(wf, podType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				pod := obj.(*v1.Pod)
-				Expect(reflect.DeepEqual(pod, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(pod, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newPod := new.(*v1.Pod)
-				Expect(reflect.DeepEqual(newPod, added)).To(BeTrue())
-				Expect(newPod.Spec.NodeName).To(Equal("foobar"))
+				gomega.Expect(reflect.DeepEqual(newPod, added)).To(gomega.BeTrue())
+				gomega.Expect(newPod.Spec.NodeName).To(gomega.Equal("foobar"))
 			},
 			DeleteFunc: func(obj interface{}) {
 				pod := obj.(*v1.Pod)
-				Expect(reflect.DeepEqual(pod, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(pod, added)).To(gomega.BeTrue())
 			},
 		})
 
 		pods = append(pods, added)
 		podWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.NodeName = "foobar"
 		podWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		pods = pods[:0]
 		podWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemovePodHandler(h)
 	})
 
-	It("responds to multiple pod add/update/delete events", func() {
+	ginkgo.It("responds to multiple pod add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		const nodeName string = "mynode"
 		type opTest struct {
@@ -569,29 +569,29 @@ var _ = Describe("Watch Factory Operations", func() {
 			AddFunc: func(obj interface{}) {
 				pod := obj.(*v1.Pod)
 				ot, ok := testPods[pod.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(BeNumerically("<", 2))
+				gomega.Expect(ot.added).To(gomega.BeNumerically("<", 2))
 				ot.added++
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newPod := new.(*v1.Pod)
 				ot, ok := testPods[newPod.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.updated).To(BeNumerically("<", 2))
+				gomega.Expect(ot.updated).To(gomega.BeNumerically("<", 2))
 				ot.updated++
-				Expect(newPod.Spec.NodeName).To(Equal(nodeName))
+				gomega.Expect(newPod.Spec.NodeName).To(gomega.Equal(nodeName))
 			},
 			DeleteFunc: func(obj interface{}) {
 				pod := obj.(*v1.Pod)
 				ot, ok := testPods[pod.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.deleted).To(BeNumerically("<", 2))
+				gomega.Expect(ot.deleted).To(gomega.BeNumerically("<", 2))
 				ot.deleted++
 			},
 		})
@@ -612,91 +612,91 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		// Ensure total number of each operation is 10; and each
 		// node's individual operation count is 2
-		Eventually(c.getAdded, 2).Should(Equal(10))
-		Eventually(c.getUpdated, 2).Should(Equal(10))
-		Eventually(c.getDeleted, 2).Should(Equal(10))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(10))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(10))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(10))
 		for _, ot := range testPods {
 			ot.mu.Lock()
-			Expect(ot.added).Should(Equal(2))
-			Expect(ot.updated).Should(Equal(2))
-			Expect(ot.deleted).Should(Equal(2))
+			gomega.Expect(ot.added).Should(gomega.Equal(2))
+			gomega.Expect(ot.updated).Should(gomega.Equal(2))
+			gomega.Expect(ot.deleted).Should(gomega.Equal(2))
 			ot.mu.Unlock()
 		}
 
 		wf.RemovePodHandler(h)
 	})
 
-	It("responds to namespace add/update/delete events", func() {
+	ginkgo.It("responds to namespace add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newNamespace("default")
 		h, c := addHandler(wf, namespaceType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				ns := obj.(*v1.Namespace)
-				Expect(reflect.DeepEqual(ns, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(ns, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newNS := new.(*v1.Namespace)
-				Expect(reflect.DeepEqual(newNS, added)).To(BeTrue())
-				Expect(newNS.Status.Phase).To(Equal(v1.NamespaceTerminating))
+				gomega.Expect(reflect.DeepEqual(newNS, added)).To(gomega.BeTrue())
+				gomega.Expect(newNS.Status.Phase).To(gomega.Equal(v1.NamespaceTerminating))
 			},
 			DeleteFunc: func(obj interface{}) {
 				ns := obj.(*v1.Namespace)
-				Expect(reflect.DeepEqual(ns, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(ns, added)).To(gomega.BeTrue())
 			},
 		})
 
 		namespaces = append(namespaces, added)
 		namespaceWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Status.Phase = v1.NamespaceTerminating
 		namespaceWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		namespaces = namespaces[:0]
 		namespaceWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveNamespaceHandler(h)
 	})
 
-	It("responds to node add/update/delete events", func() {
+	ginkgo.It("responds to node add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newNode("mynode")
 		h, c := addHandler(wf, nodeType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				node := obj.(*v1.Node)
-				Expect(reflect.DeepEqual(node, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(node, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newNode := new.(*v1.Node)
-				Expect(reflect.DeepEqual(newNode, added)).To(BeTrue())
-				Expect(newNode.Status.Phase).To(Equal(v1.NodeTerminated))
+				gomega.Expect(reflect.DeepEqual(newNode, added)).To(gomega.BeTrue())
+				gomega.Expect(newNode.Status.Phase).To(gomega.Equal(v1.NodeTerminated))
 			},
 			DeleteFunc: func(obj interface{}) {
 				node := obj.(*v1.Node)
-				Expect(reflect.DeepEqual(node, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(node, added)).To(gomega.BeTrue())
 			},
 		})
 
 		nodes = append(nodes, added)
 		nodeWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Status.Phase = v1.NodeTerminated
 		nodeWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		nodes = nodes[:0]
 		nodeWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveNodeHandler(h)
 	})
 
-	It("responds to multiple node add/update/delete events", func() {
+	ginkgo.It("responds to multiple node add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		type opTest struct {
 			mu      sync.Mutex
@@ -717,28 +717,28 @@ var _ = Describe("Watch Factory Operations", func() {
 			AddFunc: func(obj interface{}) {
 				node := obj.(*v1.Node)
 				ot, ok := testNodes[node.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(BeNumerically("<", 2))
+				gomega.Expect(ot.added).To(gomega.BeNumerically("<", 2))
 				ot.added++
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newNode := new.(*v1.Node)
 				ot, ok := testNodes[newNode.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.updated).To(BeNumerically("<", 2))
+				gomega.Expect(ot.updated).To(gomega.BeNumerically("<", 2))
 				ot.updated++
-				Expect(newNode.Status.Phase).To(Equal(v1.NodeTerminated))
+				gomega.Expect(newNode.Status.Phase).To(gomega.Equal(v1.NodeTerminated))
 			},
 			DeleteFunc: func(obj interface{}) {
 				node := obj.(*v1.Node)
 				ot, ok := testNodes[node.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
-				Expect(ot.deleted).To(BeNumerically("<", 2))
+				gomega.Expect(ot.deleted).To(gomega.BeNumerically("<", 2))
 				ot.deleted++
 				ot.mu.Unlock()
 			},
@@ -760,21 +760,21 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		// Ensure total number of each operation is 10; and each
 		// node's individual operation count is 2
-		Eventually(c.getAdded, 2).Should(Equal(10))
-		Eventually(c.getUpdated, 2).Should(Equal(10))
-		Eventually(c.getDeleted, 2).Should(Equal(10))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(10))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(10))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(10))
 		for _, ot := range testNodes {
 			ot.mu.Lock()
-			Expect(ot.added).Should(Equal(2))
-			Expect(ot.updated).Should(Equal(2))
-			Expect(ot.deleted).Should(Equal(2))
+			gomega.Expect(ot.added).Should(gomega.Equal(2))
+			gomega.Expect(ot.updated).Should(gomega.Equal(2))
+			gomega.Expect(ot.deleted).Should(gomega.Equal(2))
 			ot.mu.Unlock()
 		}
 
 		wf.RemoveNodeHandler(h)
 	})
 
-	It("correctly orders queued informer initial add events and subsequent update events", func() {
+	ginkgo.It("correctly orders queued informer initial add events and subsequent update events", func() {
 		type opTest struct {
 			mu      sync.Mutex
 			node    *v1.Node
@@ -792,7 +792,7 @@ var _ = Describe("Watch Factory Operations", func() {
 		}
 
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		startWg := sync.WaitGroup{}
 		startWg.Add(1)
@@ -811,27 +811,27 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		h, c := addHandler(wf, nodeType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				node := obj.(*v1.Node)
 				ot, ok := testNodes[node.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(Equal(0), "add for node %s already run", node.Name)
+				gomega.Expect(ot.added).To(gomega.Equal(0), "add for node %s already run", node.Name)
 				ot.added++
 			},
 			UpdateFunc: func(old, new interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				newNode := new.(*v1.Node)
 				ot, ok := testNodes[newNode.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				// Expect updates to be processed after Add
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(Equal(1), "update for node %s processed before initial add!", newNode.Name)
-				Expect(ot.updated).To(Equal(0))
+				gomega.Expect(ot.added).To(gomega.Equal(1), "update for node %s processed before initial add!", newNode.Name)
+				gomega.Expect(ot.updated).To(gomega.Equal(0))
 				ot.updated++
-				Expect(newNode.Status.Phase).To(Equal(v1.NodeTerminated))
+				gomega.Expect(newNode.Status.Phase).To(gomega.Equal(v1.NodeTerminated))
 			},
 			DeleteFunc: func(obj interface{}) {},
 		})
@@ -840,23 +840,23 @@ var _ = Describe("Watch Factory Operations", func() {
 		// Adds are done synchronously at handler addition time
 		for _, ot := range testNodes {
 			ot.mu.Lock()
-			Expect(ot.added).To(Equal(1), "missing add for node %s", ot.node.Name)
+			gomega.Expect(ot.added).To(gomega.Equal(1), "missing add for node %s", ot.node.Name)
 			ot.mu.Unlock()
 		}
-		Expect(c.getAdded()).To(Equal(len(testNodes)))
+		gomega.Expect(c.getAdded()).To(gomega.Equal(len(testNodes)))
 
 		// Updates are async and may take a bit longer to finish
-		Eventually(c.getUpdated, 10).Should(Equal(len(testNodes)))
+		gomega.Eventually(c.getUpdated, 10).Should(gomega.Equal(len(testNodes)))
 		for _, ot := range testNodes {
 			ot.mu.Lock()
-			Expect(ot.updated).To(Equal(1), "missing update for node %s", ot.node.Name)
+			gomega.Expect(ot.updated).To(gomega.Equal(1), "missing update for node %s", ot.node.Name)
 			ot.mu.Unlock()
 		}
 
 		wf.RemoveNodeHandler(h)
 	})
 
-	It("correctly orders serialized informer initial add events and subsequent update events", func() {
+	ginkgo.It("correctly orders serialized informer initial add events and subsequent update events", func() {
 		type opTest struct {
 			mu        sync.Mutex
 			namespace *v1.Namespace
@@ -874,7 +874,7 @@ var _ = Describe("Watch Factory Operations", func() {
 		}
 
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		startWg := sync.WaitGroup{}
 		startWg.Add(1)
@@ -893,27 +893,27 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		h, c := addHandler(wf, namespaceType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				namespace := obj.(*v1.Namespace)
 				ot, ok := testNamespaces[namespace.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(Equal(0))
+				gomega.Expect(ot.added).To(gomega.Equal(0))
 				ot.added++
 			},
 			UpdateFunc: func(old, new interface{}) {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 				newNamespace := new.(*v1.Namespace)
 				ot, ok := testNamespaces[newNamespace.Name]
-				Expect(ok).To(BeTrue())
+				gomega.Expect(ok).To(gomega.BeTrue())
 				// Expect updates to be processed after Add
 				ot.mu.Lock()
 				defer ot.mu.Unlock()
-				Expect(ot.added).To(Equal(1), "update for namespace %s processed before initial add!", newNamespace.Name)
-				Expect(ot.updated).To(Equal(0))
+				gomega.Expect(ot.added).To(gomega.Equal(1), "update for namespace %s processed before initial add!", newNamespace.Name)
+				gomega.Expect(ot.updated).To(gomega.Equal(0))
 				ot.updated++
-				Expect(newNamespace.Status.Phase).To(Equal(v1.NamespaceTerminating))
+				gomega.Expect(newNamespace.Status.Phase).To(gomega.Equal(v1.NamespaceTerminating))
 			},
 			DeleteFunc: func(obj interface{}) {},
 		})
@@ -922,80 +922,80 @@ var _ = Describe("Watch Factory Operations", func() {
 		// Adds are done synchronously at handler addition time
 		for _, ot := range testNamespaces {
 			ot.mu.Lock()
-			Expect(ot.added).To(Equal(1), "missing add for namespace %s", ot.namespace.Name)
+			gomega.Expect(ot.added).To(gomega.Equal(1), "missing add for namespace %s", ot.namespace.Name)
 			ot.mu.Unlock()
 		}
-		Expect(c.getAdded()).To(Equal(len(testNamespaces)))
+		gomega.Expect(c.getAdded()).To(gomega.Equal(len(testNamespaces)))
 
 		// Updates are async and may take a bit longer to finish
-		Eventually(c.getUpdated, 10).Should(Equal(len(testNamespaces)))
+		gomega.Eventually(c.getUpdated, 10).Should(gomega.Equal(len(testNamespaces)))
 		for _, ot := range testNamespaces {
 			ot.mu.Lock()
-			Expect(ot.updated).To(Equal(1), "missing update for namespace %s", ot.namespace.Name)
+			gomega.Expect(ot.updated).To(gomega.Equal(1), "missing update for namespace %s", ot.namespace.Name)
 			ot.mu.Unlock()
 		}
 
 		wf.RemoveNamespaceHandler(h)
 	})
 
-	It("responds to policy add/update/delete events", func() {
+	ginkgo.It("responds to policy add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newPolicy("mypolicy", "default")
 		h, c := addHandler(wf, policyType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				np := obj.(*knet.NetworkPolicy)
-				Expect(reflect.DeepEqual(np, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(np, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newNP := new.(*knet.NetworkPolicy)
-				Expect(reflect.DeepEqual(newNP, added)).To(BeTrue())
-				Expect(newNP.Spec.PolicyTypes).To(Equal([]knet.PolicyType{knet.PolicyTypeIngress}))
+				gomega.Expect(reflect.DeepEqual(newNP, added)).To(gomega.BeTrue())
+				gomega.Expect(newNP.Spec.PolicyTypes).To(gomega.Equal([]knet.PolicyType{knet.PolicyTypeIngress}))
 			},
 			DeleteFunc: func(obj interface{}) {
 				np := obj.(*knet.NetworkPolicy)
-				Expect(reflect.DeepEqual(np, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(np, added)).To(gomega.BeTrue())
 			},
 		})
 
 		policies = append(policies, added)
 		policyWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.PolicyTypes = []knet.PolicyType{knet.PolicyTypeIngress}
 		policyWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		policies = policies[:0]
 		policyWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemovePolicyHandler(h)
 	})
 
-	It("responds to endpoints add/update/delete events", func() {
+	ginkgo.It("responds to endpoints add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newEndpoints("myendpoints", "default")
 		h, c := addHandler(wf, endpointsType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				eps := obj.(*v1.Endpoints)
-				Expect(reflect.DeepEqual(eps, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(eps, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newEPs := new.(*v1.Endpoints)
-				Expect(reflect.DeepEqual(newEPs, added)).To(BeTrue())
-				Expect(len(newEPs.Subsets)).To(Equal(1))
+				gomega.Expect(reflect.DeepEqual(newEPs, added)).To(gomega.BeTrue())
+				gomega.Expect(len(newEPs.Subsets)).To(gomega.Equal(1))
 			},
 			DeleteFunc: func(obj interface{}) {
 				eps := obj.(*v1.Endpoints)
-				Expect(reflect.DeepEqual(eps, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(eps, added)).To(gomega.BeTrue())
 			},
 		})
 
 		endpoints = append(endpoints, added)
 		endpointsWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Subsets = append(added.Subsets, v1.EndpointSubset{
 			Ports: []v1.EndpointPort{
 				{
@@ -1005,152 +1005,152 @@ var _ = Describe("Watch Factory Operations", func() {
 			},
 		})
 		endpointsWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		endpoints = endpoints[:0]
 		endpointsWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveEndpointsHandler(h)
 	})
 
-	It("responds to service add/update/delete events", func() {
+	ginkgo.It("responds to service add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newService("myservice", "default")
 		h, c := addHandler(wf, serviceType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				service := obj.(*v1.Service)
-				Expect(reflect.DeepEqual(service, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(service, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newService := new.(*v1.Service)
-				Expect(reflect.DeepEqual(newService, added)).To(BeTrue())
-				Expect(newService.Spec.ClusterIP).To(Equal("1.1.1.1"))
+				gomega.Expect(reflect.DeepEqual(newService, added)).To(gomega.BeTrue())
+				gomega.Expect(newService.Spec.ClusterIP).To(gomega.Equal("1.1.1.1"))
 			},
 			DeleteFunc: func(obj interface{}) {
 				service := obj.(*v1.Service)
-				Expect(reflect.DeepEqual(service, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(service, added)).To(gomega.BeTrue())
 			},
 		})
 
 		services = append(services, added)
 		serviceWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.ClusterIP = "1.1.1.1"
 		serviceWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		services = services[:0]
 		serviceWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveServiceHandler(h)
 	})
 
-	It("responds to egressFirewall add/update/delete events", func() {
+	ginkgo.It("responds to egressFirewall add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
 		err = wf.InitializeEgressFirewallWatchFactory()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newEgressFirewall("myEgressFirewall", "default")
 		h, c := addHandler(wf, egressFirewallType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				egressFirewall := obj.(*egressfirewall.EgressFirewall)
-				Expect(reflect.DeepEqual(egressFirewall, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(egressFirewall, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newEgressFirewall := new.(*egressfirewall.EgressFirewall)
-				Expect(reflect.DeepEqual(newEgressFirewall, added)).To(BeTrue())
-				Expect(newEgressFirewall.Spec.Egress[0].Type).To(Equal(egressfirewall.EgressFirewallRuleDeny))
+				gomega.Expect(reflect.DeepEqual(newEgressFirewall, added)).To(gomega.BeTrue())
+				gomega.Expect(newEgressFirewall.Spec.Egress[0].Type).To(gomega.Equal(egressfirewall.EgressFirewallRuleDeny))
 			},
 			DeleteFunc: func(obj interface{}) {
 				egressFirewall := obj.(*egressfirewall.EgressFirewall)
-				Expect(reflect.DeepEqual(egressFirewall, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(egressFirewall, added)).To(gomega.BeTrue())
 			},
 		})
 
 		egressFirewalls = append(egressFirewalls, added)
 		egressFirewallWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.Egress[0].Type = egressfirewall.EgressFirewallRuleDeny
 		egressFirewallWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		egressFirewalls = egressFirewalls[:0]
 		egressFirewallWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveEgressFirewallHandler(h)
 	})
-	It("responds to crd add/update/delete events", func() {
+	ginkgo.It("responds to crd add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newCRD("crd1", "")
 		h, c := addHandler(wf, crdType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				crd := obj.(*apiextensions.CustomResourceDefinition)
-				Expect(reflect.DeepEqual(crd, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(crd, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newcrd := new.(*apiextensions.CustomResourceDefinition)
-				Expect(reflect.DeepEqual(newcrd, added)).To(BeTrue())
-				Expect(newcrd.Spec.Group).To(Equal("my-test"))
+				gomega.Expect(reflect.DeepEqual(newcrd, added)).To(gomega.BeTrue())
+				gomega.Expect(newcrd.Spec.Group).To(gomega.Equal("my-test"))
 			},
 			DeleteFunc: func(obj interface{}) {
 				crd := obj.(*apiextensions.CustomResourceDefinition)
-				Expect(reflect.DeepEqual(crd, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(crd, added)).To(gomega.BeTrue())
 			},
 		})
 
 		crds = append(crds, added)
 		crdWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.Group = "my-test"
 		crdWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		crds = crds[:0]
 		crdWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveCRDHandler(h)
 
 	})
-	It("responds to egressIP add/update/delete events", func() {
+	ginkgo.It("responds to egressIP add/update/delete events", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newEgressIP("myEgressIP", "default")
 		h, c := addHandler(wf, egressIPType, cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				egressIP := obj.(*egressip.EgressIP)
-				Expect(reflect.DeepEqual(egressIP, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(egressIP, added)).To(gomega.BeTrue())
 			},
 			UpdateFunc: func(old, new interface{}) {
 				newEgressIP := new.(*egressip.EgressIP)
-				Expect(reflect.DeepEqual(newEgressIP, added)).To(BeTrue())
-				Expect(newEgressIP.Spec.EgressIPs).To(Equal([]string{"192.168.126.10"}))
+				gomega.Expect(reflect.DeepEqual(newEgressIP, added)).To(gomega.BeTrue())
+				gomega.Expect(newEgressIP.Spec.EgressIPs).To(gomega.Equal([]string{"192.168.126.10"}))
 			},
 			DeleteFunc: func(obj interface{}) {
 				egressIP := obj.(*egressip.EgressIP)
-				Expect(reflect.DeepEqual(egressIP, added)).To(BeTrue())
+				gomega.Expect(reflect.DeepEqual(egressIP, added)).To(gomega.BeTrue())
 			},
 		})
 
 		egressIPs = append(egressIPs, added)
 		egressIPWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		added.Spec.EgressIPs = []string{"192.168.126.10"}
 		egressIPWatch.Modify(added)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 		egressIPs = egressIPs[:0]
 		egressIPWatch.Delete(added)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 
 		wf.RemoveEgressIPHandler(h)
 	})
-	It("stops processing events after the handler is removed", func() {
+	ginkgo.It("stops processing events after the handler is removed", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		added := newNamespace("default")
 		h, c := addHandler(wf, namespaceType, cache.ResourceEventHandlerFuncs{
@@ -1161,25 +1161,25 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		namespaces = append(namespaces, added)
 		namespaceWatch.Add(added)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 		wf.RemoveNamespaceHandler(h)
 
 		added2 := newNamespace("other")
 		namespaces = append(namespaces, added2)
 		namespaceWatch.Add(added2)
-		Consistently(c.getAdded, 2).Should(Equal(1))
+		gomega.Consistently(c.getAdded, 2).Should(gomega.Equal(1))
 
 		added2.Status.Phase = v1.NamespaceTerminating
 		namespaceWatch.Modify(added2)
-		Consistently(c.getUpdated, 2).Should(Equal(0))
+		gomega.Consistently(c.getUpdated, 2).Should(gomega.Equal(0))
 		namespaces = []*v1.Namespace{added}
 		namespaceWatch.Delete(added2)
-		Consistently(c.getDeleted, 2).Should(Equal(0))
+		gomega.Consistently(c.getDeleted, 2).Should(gomega.Equal(0))
 	})
 
-	It("filters correctly by label and namespace", func() {
+	ginkgo.It("filters correctly by label and namespace", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		passesFilter := newPod("pod1", "default")
 		passesFilter.ObjectMeta.Labels["blah"] = "foobar"
@@ -1193,7 +1193,7 @@ var _ = Describe("Watch Factory Operations", func() {
 				MatchLabels: map[string]string{"blah": "foobar"},
 			},
 		)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		_, c := addFilteredHandler(wf,
 			podType,
@@ -1202,53 +1202,53 @@ var _ = Describe("Watch Factory Operations", func() {
 			cache.ResourceEventHandlerFuncs{
 				AddFunc: func(obj interface{}) {
 					pod := obj.(*v1.Pod)
-					Expect(reflect.DeepEqual(pod, passesFilter)).To(BeTrue())
+					gomega.Expect(reflect.DeepEqual(pod, passesFilter)).To(gomega.BeTrue())
 				},
 				UpdateFunc: func(old, new interface{}) {
 					newPod := new.(*v1.Pod)
-					Expect(reflect.DeepEqual(newPod, passesFilter)).To(BeTrue())
+					gomega.Expect(reflect.DeepEqual(newPod, passesFilter)).To(gomega.BeTrue())
 				},
 				DeleteFunc: func(obj interface{}) {
 					pod := obj.(*v1.Pod)
-					Expect(reflect.DeepEqual(pod, passesFilter)).To(BeTrue())
+					gomega.Expect(reflect.DeepEqual(pod, passesFilter)).To(gomega.BeTrue())
 				},
 			})
 
 		pods = append(pods, passesFilter)
 		podWatch.Add(passesFilter)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 
 		// numAdded should remain 1
 		pods = append(pods, failsFilter)
 		podWatch.Add(failsFilter)
-		Consistently(c.getAdded, 2).Should(Equal(1))
+		gomega.Consistently(c.getAdded, 2).Should(gomega.Equal(1))
 
 		// numAdded should remain 1
 		pods = append(pods, failsFilter2)
 		podWatch.Add(failsFilter2)
-		Consistently(c.getAdded, 2).Should(Equal(1))
+		gomega.Consistently(c.getAdded, 2).Should(gomega.Equal(1))
 
 		passesFilter.Status.Phase = v1.PodFailed
 		podWatch.Modify(passesFilter)
-		Eventually(c.getUpdated, 2).Should(Equal(1))
+		gomega.Eventually(c.getUpdated, 2).Should(gomega.Equal(1))
 
 		// numAdded should remain 1
 		failsFilter.Status.Phase = v1.PodFailed
 		podWatch.Modify(failsFilter)
-		Consistently(c.getUpdated, 2).Should(Equal(1))
+		gomega.Consistently(c.getUpdated, 2).Should(gomega.Equal(1))
 
 		failsFilter2.Status.Phase = v1.PodFailed
 		podWatch.Modify(failsFilter2)
-		Consistently(c.getUpdated, 2).Should(Equal(1))
+		gomega.Consistently(c.getUpdated, 2).Should(gomega.Equal(1))
 
 		pods = []*v1.Pod{failsFilter, failsFilter2}
 		podWatch.Delete(passesFilter)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
 	})
 
-	It("correctly handles object updates that cause filter changes", func() {
+	ginkgo.It("correctly handles object updates that cause filter changes", func() {
 		wf, err = NewMasterWatchFactory(ovnClientset)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		pod := newPod("pod1", "default")
 		pod.ObjectMeta.Labels["blah"] = "baz"
@@ -1258,7 +1258,7 @@ var _ = Describe("Watch Factory Operations", func() {
 				MatchLabels: map[string]string{"blah": "foobar"},
 			},
 		)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		equalPod := pod
 		h, c := addFilteredHandler(wf,
@@ -1268,12 +1268,12 @@ var _ = Describe("Watch Factory Operations", func() {
 			cache.ResourceEventHandlerFuncs{
 				AddFunc: func(obj interface{}) {
 					p := obj.(*v1.Pod)
-					Expect(reflect.DeepEqual(p, equalPod)).To(BeTrue())
+					gomega.Expect(reflect.DeepEqual(p, equalPod)).To(gomega.BeTrue())
 				},
 				UpdateFunc: func(old, new interface{}) {},
 				DeleteFunc: func(obj interface{}) {
 					p := obj.(*v1.Pod)
-					Expect(reflect.DeepEqual(p, equalPod)).To(BeTrue())
+					gomega.Expect(reflect.DeepEqual(p, equalPod)).To(gomega.BeTrue())
 				},
 			})
 
@@ -1281,7 +1281,7 @@ var _ = Describe("Watch Factory Operations", func() {
 
 		// Pod doesn't pass filter; shouldn't be added
 		podWatch.Add(pod)
-		Consistently(c.getAdded, 2).Should(Equal(0))
+		gomega.Consistently(c.getAdded, 2).Should(gomega.Equal(0))
 
 		// Update pod to pass filter; should be treated as add.  Need
 		// to deep-copy pod when modifying because it's a pointer all
@@ -1291,14 +1291,14 @@ var _ = Describe("Watch Factory Operations", func() {
 		pods = []*v1.Pod{podCopy}
 		equalPod = podCopy
 		podWatch.Modify(podCopy)
-		Eventually(c.getAdded, 2).Should(Equal(1))
+		gomega.Eventually(c.getAdded, 2).Should(gomega.Equal(1))
 
 		// Update pod to fail filter; should be treated as delete
 		pod.ObjectMeta.Labels["blah"] = "baz"
 		podWatch.Modify(pod)
-		Eventually(c.getDeleted, 2).Should(Equal(1))
-		Consistently(c.getAdded, 2).Should(Equal(1))
-		Consistently(c.getUpdated, 2).Should(Equal(0))
+		gomega.Eventually(c.getDeleted, 2).Should(gomega.Equal(1))
+		gomega.Consistently(c.getAdded, 2).Should(gomega.Equal(1))
+		gomega.Consistently(c.getUpdated, 2).Should(gomega.Equal(0))
 
 		wf.RemovePodHandler(h)
 	})

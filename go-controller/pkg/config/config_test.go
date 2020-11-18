@@ -13,13 +13,13 @@ import (
 
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 func TestConfig(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Config Suite")
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Config Suite")
 }
 
 func writeConfigFile(cfgFile *os.File, randomOptData bool, args ...string) error {
@@ -55,7 +55,7 @@ func writeConfigFile(cfgFile *os.File, randomOptData bool, args ...string) error
 
 		if randomOptData {
 			parts := strings.Split(arg, "=")
-			Expect(len(parts)).To(Equal(2))
+			gomega.Expect(len(parts)).To(gomega.Equal(2))
 			sections[section] = append(sections[section], parts[0]+"=aklsdjfalsdfkjaslfdkjasfdlksa")
 		} else {
 			sections[section] = append(sections[section], arg)
@@ -107,9 +107,9 @@ func runInit(app *cli.App, runType int, cfgFile *os.File, args ...string) error 
 
 var tmpDir string
 
-var _ = AfterSuite(func() {
+var _ = ginkgo.AfterSuite(func() {
 	err := os.RemoveAll(tmpDir)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func createTempFile(name string) (string, error) {
@@ -194,18 +194,18 @@ cluster-subnets=11.132.0.0/14/23
 	return ioutil.WriteFile(path, []byte(newData), 0644)
 }
 
-var _ = Describe("Config Operations", func() {
+var _ = ginkgo.Describe("Config Operations", func() {
 	var app *cli.App
 	var cfgFile *os.File
 
 	var tmpErr error
 	tmpDir, tmpErr = ioutil.TempDir("", "configtest_certdir")
 	if tmpErr != nil {
-		GinkgoT().Errorf("failed to create tempdir: %v", tmpErr)
+		ginkgo.GinkgoT().Errorf("failed to create tempdir: %v", tmpErr)
 	}
 	tmpDir += "/"
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		// Restore global default values before each testcase
 		PrepareTestConfig()
 
@@ -215,53 +215,53 @@ var _ = Describe("Config Operations", func() {
 
 		var err error
 		cfgFile, err = ioutil.TempFile("", "conftest-")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		os.Remove(cfgFile.Name())
 	})
 
-	It("uses expected defaults", func() {
+	ginkgo.It("uses expected defaults", func() {
 		app.Action = func(ctx *cli.Context) error {
 			cfgPath, err := InitConfigSa(ctx, kexec.New(), tmpDir, nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Default.MTU).To(Equal(1400))
-			Expect(Default.ConntrackZone).To(Equal(64000))
-			Expect(Logging.File).To(Equal(""))
-			Expect(Logging.Level).To(Equal(4))
-			Expect(CNI.ConfDir).To(Equal("/etc/cni/net.d"))
-			Expect(CNI.Plugin).To(Equal("ovn-k8s-cni-overlay"))
-			Expect(Kubernetes.Kubeconfig).To(Equal(""))
-			Expect(Kubernetes.CACert).To(Equal(""))
-			Expect(Kubernetes.Token).To(Equal(""))
-			Expect(Kubernetes.APIServer).To(Equal(DefaultAPIServer))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.16.1.0/24"))
-			Expect(Kubernetes.RawNoHostSubnetNodes).To(Equal(""))
-			Expect(Default.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(Default.MTU).To(gomega.Equal(1400))
+			gomega.Expect(Default.ConntrackZone).To(gomega.Equal(64000))
+			gomega.Expect(Logging.File).To(gomega.Equal(""))
+			gomega.Expect(Logging.Level).To(gomega.Equal(4))
+			gomega.Expect(CNI.ConfDir).To(gomega.Equal("/etc/cni/net.d"))
+			gomega.Expect(CNI.Plugin).To(gomega.Equal("ovn-k8s-cni-overlay"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(""))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(""))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal(""))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal(DefaultAPIServer))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.16.1.0/24"))
+			gomega.Expect(Kubernetes.RawNoHostSubnetNodes).To(gomega.Equal(""))
+			gomega.Expect(Default.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("10.128.0.0/14"), 23},
 			}))
-			Expect(IPv4Mode).To(Equal(true))
-			Expect(IPv6Mode).To(Equal(false))
-			Expect(HybridOverlay.Enabled).To(Equal(false))
+			gomega.Expect(IPv4Mode).To(gomega.Equal(true))
+			gomega.Expect(IPv6Mode).To(gomega.Equal(false))
+			gomega.Expect(HybridOverlay.Enabled).To(gomega.Equal(false))
 
 			for _, a := range []OvnAuthConfig{OvnNorth, OvnSouth} {
-				Expect(a.Scheme).To(Equal(OvnDBSchemeUnix))
-				Expect(a.PrivKey).To(Equal(""))
-				Expect(a.Cert).To(Equal(""))
-				Expect(a.CACert).To(Equal(""))
-				Expect(a.Address).To(Equal(""))
-				Expect(a.CertCommonName).To(Equal(""))
+				gomega.Expect(a.Scheme).To(gomega.Equal(OvnDBSchemeUnix))
+				gomega.Expect(a.PrivKey).To(gomega.Equal(""))
+				gomega.Expect(a.Cert).To(gomega.Equal(""))
+				gomega.Expect(a.CACert).To(gomega.Equal(""))
+				gomega.Expect(a.Address).To(gomega.Equal(""))
+				gomega.Expect(a.CertCommonName).To(gomega.Equal(""))
 			}
 			return nil
 		}
 		err := app.Run([]string{app.Name, "-config-file=" + cfgFile.Name()})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("reads defaults from ovs-vsctl external IDs", func() {
+	ginkgo.It("reads defaults from ovs-vsctl external IDs", func() {
 		app.Action = func(ctx *cli.Context) error {
 			fexec := ovntest.NewFakeExec()
 
@@ -278,7 +278,7 @@ var _ = Describe("Config Operations", func() {
 			})
 			// k8s-ca-certificate
 			fname, err := createTempFile("ca.crt")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 				Cmd:    "ovs-vsctl --timeout=15 --if-exists get Open_vSwitch . external_ids:k8s-ca-certificate",
 				Output: fname,
@@ -295,35 +295,35 @@ var _ = Describe("Config Operations", func() {
 				K8sToken:        true,
 				K8sCert:         true,
 			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 
-			Expect(Kubernetes.APIServer).To(Equal("https://somewhere.com:8081"))
-			Expect(Kubernetes.CACert).To(Equal(fname))
-			Expect(Kubernetes.Token).To(Equal("asadfasdfasrw3atr3r3rf33fasdaa3233"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://somewhere.com:8081"))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(fname))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("asadfasdfasrw3atr3r3rf33fasdaa3233"))
 
-			Expect(OvnNorth.Scheme).To(Equal(OvnDBSchemeTCP))
-			Expect(OvnNorth.PrivKey).To(Equal(""))
-			Expect(OvnNorth.Cert).To(Equal(""))
-			Expect(OvnNorth.CACert).To(Equal(""))
-			Expect(OvnNorth.Address).To(Equal("tcp:1.1.1.1:6441"))
-			Expect(OvnNorth.CertCommonName).To(Equal(""))
+			gomega.Expect(OvnNorth.Scheme).To(gomega.Equal(OvnDBSchemeTCP))
+			gomega.Expect(OvnNorth.PrivKey).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.Cert).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.CACert).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.Address).To(gomega.Equal("tcp:1.1.1.1:6441"))
+			gomega.Expect(OvnNorth.CertCommonName).To(gomega.Equal(""))
 
-			Expect(OvnSouth.Scheme).To(Equal(OvnDBSchemeUnix))
-			Expect(OvnSouth.PrivKey).To(Equal(""))
-			Expect(OvnSouth.Cert).To(Equal(""))
-			Expect(OvnSouth.CACert).To(Equal(""))
-			Expect(OvnSouth.Address).To(Equal(""))
-			Expect(OvnSouth.CertCommonName).To(Equal(""))
+			gomega.Expect(OvnSouth.Scheme).To(gomega.Equal(OvnDBSchemeUnix))
+			gomega.Expect(OvnSouth.PrivKey).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.Cert).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.CACert).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.Address).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.CertCommonName).To(gomega.Equal(""))
 
 			return nil
 		}
 		err := app.Run([]string{app.Name, "-config-file=" + cfgFile.Name()})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("reads defaults (multiple master) from ovs-vsctl external IDs", func() {
+	ginkgo.It("reads defaults (multiple master) from ovs-vsctl external IDs", func() {
 		app.Action = func(ctx *cli.Context) error {
 			fexec := ovntest.NewFakeExec()
 
@@ -340,7 +340,7 @@ var _ = Describe("Config Operations", func() {
 			})
 			// k8s-ca-certificate
 			fname, err := createTempFile("kube-cacert.pem")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 				Cmd:    "ovs-vsctl --timeout=15 --if-exists get Open_vSwitch . external_ids:k8s-ca-certificate",
 				Output: fname,
@@ -352,7 +352,7 @@ var _ = Describe("Config Operations", func() {
 			})
 
 			tokenFile, err1 := createTempFileContent("token", "TG9yZW0gaXBzdW0gZ")
-			Expect(err1).NotTo(HaveOccurred())
+			gomega.Expect(err1).NotTo(gomega.HaveOccurred())
 			defer os.Remove(tokenFile)
 
 			cfgPath, err := InitConfigSa(ctx, fexec, tmpDir, &Defaults{
@@ -361,61 +361,61 @@ var _ = Describe("Config Operations", func() {
 				K8sToken:        true,
 				K8sCert:         true,
 			})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 
-			Expect(Kubernetes.APIServer).To(Equal("https://somewhere.com:8081"))
-			Expect(Kubernetes.CACert).To(Equal(fname))
-			Expect(Kubernetes.Token).To(Equal("asadfasdfasrw3atr3r3rf33fasdaa3233"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://somewhere.com:8081"))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(fname))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("asadfasdfasrw3atr3r3rf33fasdaa3233"))
 
-			Expect(OvnNorth.Scheme).To(Equal(OvnDBSchemeTCP))
-			Expect(OvnNorth.PrivKey).To(Equal(""))
-			Expect(OvnNorth.Cert).To(Equal(""))
-			Expect(OvnNorth.CACert).To(Equal(""))
-			Expect(OvnNorth.Address).To(
-				Equal("tcp:1.1.1.1:6441,tcp:1.1.1.2:6641,tcp:1.1.1.3:6641"))
-			Expect(OvnNorth.CertCommonName).To(Equal(""))
+			gomega.Expect(OvnNorth.Scheme).To(gomega.Equal(OvnDBSchemeTCP))
+			gomega.Expect(OvnNorth.PrivKey).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.Cert).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.CACert).To(gomega.Equal(""))
+			gomega.Expect(OvnNorth.Address).To(
+				gomega.Equal("tcp:1.1.1.1:6441,tcp:1.1.1.2:6641,tcp:1.1.1.3:6641"))
+			gomega.Expect(OvnNorth.CertCommonName).To(gomega.Equal(""))
 
-			Expect(OvnSouth.Scheme).To(Equal(OvnDBSchemeUnix))
-			Expect(OvnSouth.PrivKey).To(Equal(""))
-			Expect(OvnSouth.Cert).To(Equal(""))
-			Expect(OvnSouth.CACert).To(Equal(""))
-			Expect(OvnSouth.Address).To(Equal(""))
-			Expect(OvnSouth.CertCommonName).To(Equal(""))
+			gomega.Expect(OvnSouth.Scheme).To(gomega.Equal(OvnDBSchemeUnix))
+			gomega.Expect(OvnSouth.PrivKey).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.Cert).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.CACert).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.Address).To(gomega.Equal(""))
+			gomega.Expect(OvnSouth.CertCommonName).To(gomega.Equal(""))
 
 			return nil
 		}
 		err := app.Run([]string{app.Name, "-config-file=" + cfgFile.Name()})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("uses serviceaccount files", func() {
+	ginkgo.It("uses serviceaccount files", func() {
 		kubeCAcertFile, err := createTempFile("ca.crt")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAcertFile)
 
 		tokenFile, err1 := createTempFileContent("token", "TG9yZW0gaXBzdW0gZ")
-		Expect(err1).NotTo(HaveOccurred())
+		gomega.Expect(err1).NotTo(gomega.HaveOccurred())
 		defer os.Remove(tokenFile)
 
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfigSa(ctx, kexec.New(), tmpDir, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Expect(Kubernetes.CACert).To(Equal(kubeCAcertFile))
-			Expect(Kubernetes.Token).To(Equal("TG9yZW0gaXBzdW0gZ"))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAcertFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("TG9yZW0gaXBzdW0gZ"))
 
 			return nil
 		}
 		err2 := app.Run([]string{app.Name})
-		Expect(err2).NotTo(HaveOccurred())
+		gomega.Expect(err2).NotTo(gomega.HaveOccurred())
 
 	})
 
-	It("uses environment variables", func() {
+	ginkgo.It("uses environment variables", func() {
 		kubeconfigEnvFile, err := createTempFile("kubeconfig.env")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeconfigEnvFile)
 		os.Setenv("KUBECONFIG", kubeconfigEnvFile)
 		defer os.Setenv("KUBECONFIG", "")
@@ -427,7 +427,7 @@ var _ = Describe("Config Operations", func() {
 		defer os.Setenv("K8S_APISERVER", "")
 
 		kubeCAFile, err1 := createTempFile("kube-ca.crt")
-		Expect(err1).NotTo(HaveOccurred())
+		gomega.Expect(err1).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAFile)
 		os.Setenv("K8S_CACERT", kubeCAFile)
 		defer os.Setenv("K8S_CACERT", "")
@@ -435,138 +435,138 @@ var _ = Describe("Config Operations", func() {
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfigSa(ctx, kexec.New(), tmpDir, nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Kubernetes.Kubeconfig).To(Equal(kubeconfigEnvFile))
-			Expect(Kubernetes.CACert).To(Equal(kubeCAFile))
-			Expect(Kubernetes.Token).To(Equal("this is the  token test"))
-			Expect(Kubernetes.APIServer).To(Equal("https://9.2.3.4:6443"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(kubeconfigEnvFile))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("this is the  token test"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://9.2.3.4:6443"))
 
 			return nil
 		}
 		err = app.Run([]string{app.Name, "-config-file=" + cfgFile.Name()})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	})
 
-	It("overrides defaults with config file options", func() {
+	ginkgo.It("overrides defaults with config file options", func() {
 		kubeconfigFile, err := createTempFile("kubeconfig")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeconfigFile)
 
 		kubeCAFile, err := createTempFile("kube-ca.crt")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAFile)
 
 		err = writeTestConfigFile(cfgFile.Name(), "kubeconfig="+kubeconfigFile, "cacert="+kubeCAFile)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Default.MTU).To(Equal(1500))
-			Expect(Default.ConntrackZone).To(Equal(64321))
-			Expect(Logging.File).To(Equal("/var/log/ovnkube.log"))
-			Expect(Logging.Level).To(Equal(5))
-			Expect(CNI.ConfDir).To(Equal("/etc/cni/net.d22"))
-			Expect(CNI.Plugin).To(Equal("ovn-k8s-cni-overlay22"))
-			Expect(Kubernetes.Kubeconfig).To(Equal(kubeconfigFile))
-			Expect(Kubernetes.CACert).To(Equal(kubeCAFile))
-			Expect(Kubernetes.Token).To(Equal("TG9yZW0gaXBzdW0gZ"))
-			Expect(Kubernetes.APIServer).To(Equal("https://1.2.3.4:6443"))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.18.0.0/24"))
-			Expect(Default.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(Default.MTU).To(gomega.Equal(1500))
+			gomega.Expect(Default.ConntrackZone).To(gomega.Equal(64321))
+			gomega.Expect(Logging.File).To(gomega.Equal("/var/log/ovnkube.log"))
+			gomega.Expect(Logging.Level).To(gomega.Equal(5))
+			gomega.Expect(CNI.ConfDir).To(gomega.Equal("/etc/cni/net.d22"))
+			gomega.Expect(CNI.Plugin).To(gomega.Equal("ovn-k8s-cni-overlay22"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(kubeconfigFile))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("TG9yZW0gaXBzdW0gZ"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://1.2.3.4:6443"))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.18.0.0/24"))
+			gomega.Expect(Default.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("10.132.0.0/14"), 23},
 			}))
 
-			Expect(OvnNorth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnNorth.PrivKey).To(Equal("/path/to/nb-client-private.key"))
-			Expect(OvnNorth.Cert).To(Equal("/path/to/nb-client.crt"))
-			Expect(OvnNorth.CACert).To(Equal("/path/to/nb-client-ca.crt"))
-			Expect(OvnNorth.Address).To(Equal("ssl:1.2.3.4:6641"))
-			Expect(OvnNorth.CertCommonName).To(Equal("cfg-nbcommonname"))
+			gomega.Expect(OvnNorth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnNorth.PrivKey).To(gomega.Equal("/path/to/nb-client-private.key"))
+			gomega.Expect(OvnNorth.Cert).To(gomega.Equal("/path/to/nb-client.crt"))
+			gomega.Expect(OvnNorth.CACert).To(gomega.Equal("/path/to/nb-client-ca.crt"))
+			gomega.Expect(OvnNorth.Address).To(gomega.Equal("ssl:1.2.3.4:6641"))
+			gomega.Expect(OvnNorth.CertCommonName).To(gomega.Equal("cfg-nbcommonname"))
 
-			Expect(OvnSouth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnSouth.PrivKey).To(Equal("/path/to/sb-client-private.key"))
-			Expect(OvnSouth.Cert).To(Equal("/path/to/sb-client.crt"))
-			Expect(OvnSouth.CACert).To(Equal("/path/to/sb-client-ca.crt"))
-			Expect(OvnSouth.Address).To(Equal("ssl:1.2.3.4:6642"))
-			Expect(OvnSouth.CertCommonName).To(Equal("cfg-sbcommonname"))
+			gomega.Expect(OvnSouth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnSouth.PrivKey).To(gomega.Equal("/path/to/sb-client-private.key"))
+			gomega.Expect(OvnSouth.Cert).To(gomega.Equal("/path/to/sb-client.crt"))
+			gomega.Expect(OvnSouth.CACert).To(gomega.Equal("/path/to/sb-client-ca.crt"))
+			gomega.Expect(OvnSouth.Address).To(gomega.Equal("ssl:1.2.3.4:6642"))
+			gomega.Expect(OvnSouth.CertCommonName).To(gomega.Equal("cfg-sbcommonname"))
 
-			Expect(Gateway.Mode).To(Equal(GatewayModeShared))
-			Expect(Gateway.Interface).To(Equal("eth1"))
-			Expect(Gateway.NextHop).To(Equal("1.3.4.5"))
-			Expect(Gateway.VLANID).To(Equal(uint(10)))
-			Expect(Gateway.NodeportEnable).To(BeFalse())
+			gomega.Expect(Gateway.Mode).To(gomega.Equal(GatewayModeShared))
+			gomega.Expect(Gateway.Interface).To(gomega.Equal("eth1"))
+			gomega.Expect(Gateway.NextHop).To(gomega.Equal("1.3.4.5"))
+			gomega.Expect(Gateway.VLANID).To(gomega.Equal(uint(10)))
+			gomega.Expect(Gateway.NodeportEnable).To(gomega.BeFalse())
 
-			Expect(HybridOverlay.Enabled).To(BeTrue())
-			Expect(HybridOverlay.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(HybridOverlay.Enabled).To(gomega.BeTrue())
+			gomega.Expect(HybridOverlay.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("11.132.0.0/14"), 23},
 			}))
 
 			return nil
 		}
 		err = app.Run([]string{app.Name, "-config-file=" + cfgFile.Name()})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI options", func() {
+	ginkgo.It("overrides config file and defaults with CLI options", func() {
 		kubeconfigFile, err := createTempFile("kubeconfig")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeconfigFile)
 
 		kubeCAFile, err := createTempFile("kube-ca.crt")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAFile)
 
 		err = writeTestConfigFile(cfgFile.Name())
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Default.MTU).To(Equal(1234))
-			Expect(Default.ConntrackZone).To(Equal(5555))
-			Expect(Logging.File).To(Equal("/some/logfile"))
-			Expect(Logging.Level).To(Equal(3))
-			Expect(CNI.ConfDir).To(Equal("/some/cni/dir"))
-			Expect(CNI.Plugin).To(Equal("a-plugin"))
-			Expect(Kubernetes.Kubeconfig).To(Equal(kubeconfigFile))
-			Expect(Kubernetes.CACert).To(Equal(kubeCAFile))
-			Expect(Kubernetes.Token).To(Equal("asdfasdfasdfasfd"))
-			Expect(Kubernetes.APIServer).To(Equal("https://4.4.3.2:8080"))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.15.0.0/24"))
-			Expect(Kubernetes.RawNoHostSubnetNodes).To(Equal("test=pass"))
-			Expect(Default.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(Default.MTU).To(gomega.Equal(1234))
+			gomega.Expect(Default.ConntrackZone).To(gomega.Equal(5555))
+			gomega.Expect(Logging.File).To(gomega.Equal("/some/logfile"))
+			gomega.Expect(Logging.Level).To(gomega.Equal(3))
+			gomega.Expect(CNI.ConfDir).To(gomega.Equal("/some/cni/dir"))
+			gomega.Expect(CNI.Plugin).To(gomega.Equal("a-plugin"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(kubeconfigFile))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("asdfasdfasdfasfd"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://4.4.3.2:8080"))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.15.0.0/24"))
+			gomega.Expect(Kubernetes.RawNoHostSubnetNodes).To(gomega.Equal("test=pass"))
+			gomega.Expect(Default.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("10.130.0.0/15"), 24},
 			}))
 
-			Expect(OvnNorth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnNorth.PrivKey).To(Equal("/client/privkey"))
-			Expect(OvnNorth.Cert).To(Equal("/client/cert"))
-			Expect(OvnNorth.CACert).To(Equal("/client/cacert"))
-			Expect(OvnNorth.Address).To(Equal("ssl:6.5.4.3:6651"))
-			Expect(OvnNorth.CertCommonName).To(Equal("testnbcommonname"))
+			gomega.Expect(OvnNorth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnNorth.PrivKey).To(gomega.Equal("/client/privkey"))
+			gomega.Expect(OvnNorth.Cert).To(gomega.Equal("/client/cert"))
+			gomega.Expect(OvnNorth.CACert).To(gomega.Equal("/client/cacert"))
+			gomega.Expect(OvnNorth.Address).To(gomega.Equal("ssl:6.5.4.3:6651"))
+			gomega.Expect(OvnNorth.CertCommonName).To(gomega.Equal("testnbcommonname"))
 
-			Expect(OvnSouth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnSouth.PrivKey).To(Equal("/client/privkey2"))
-			Expect(OvnSouth.Cert).To(Equal("/client/cert2"))
-			Expect(OvnSouth.CACert).To(Equal("/client/cacert2"))
-			Expect(OvnSouth.Address).To(Equal("ssl:6.5.4.1:6652"))
-			Expect(OvnSouth.CertCommonName).To(Equal("testsbcommonname"))
+			gomega.Expect(OvnSouth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnSouth.PrivKey).To(gomega.Equal("/client/privkey2"))
+			gomega.Expect(OvnSouth.Cert).To(gomega.Equal("/client/cert2"))
+			gomega.Expect(OvnSouth.CACert).To(gomega.Equal("/client/cacert2"))
+			gomega.Expect(OvnSouth.Address).To(gomega.Equal("ssl:6.5.4.1:6652"))
+			gomega.Expect(OvnSouth.CertCommonName).To(gomega.Equal("testsbcommonname"))
 
-			Expect(Gateway.Mode).To(Equal(GatewayModeShared))
-			Expect(Gateway.NodeportEnable).To(BeTrue())
+			gomega.Expect(Gateway.Mode).To(gomega.Equal(GatewayModeShared))
+			gomega.Expect(Gateway.NodeportEnable).To(gomega.BeTrue())
 
-			Expect(HybridOverlay.Enabled).To(BeTrue())
-			Expect(HybridOverlay.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(HybridOverlay.Enabled).To(gomega.BeTrue())
+			gomega.Expect(HybridOverlay.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("11.132.0.0/14"), 23},
 			}))
 			return nil
@@ -603,21 +603,21 @@ var _ = Describe("Config Operations", func() {
 			"-hybrid-overlay-cluster-subnets=11.132.0.0/14/23",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI legacy service-cluster-ip-range option", func() {
+	ginkgo.It("overrides config file and defaults with CLI legacy service-cluster-ip-range option", func() {
 		err := ioutil.WriteFile(cfgFile.Name(), []byte(`[kubernetes]
 service-cidrs=172.18.0.0/24
 `), 0644)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.15.0.0/24"))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.15.0.0/24"))
 			return nil
 		}
 		cliArgs := []string{
@@ -626,21 +626,21 @@ service-cidrs=172.18.0.0/24
 			"-service-cluster-ip-range=172.15.0.0/24",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("accepts legacy service-cidr config file option", func() {
+	ginkgo.It("accepts legacy service-cidr config file option", func() {
 		err := ioutil.WriteFile(cfgFile.Name(), []byte(`[kubernetes]
 service-cidr=172.18.0.0/24
 `), 0644)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.18.0.0/24"))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.18.0.0/24"))
 			return nil
 		}
 		cliArgs := []string{
@@ -648,13 +648,13 @@ service-cidr=172.18.0.0/24
 			"-config-file=" + cfgFile.Name(),
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("returns an error when the k8s-service-cidrs is invalid", func() {
+	ginkgo.It("returns an error when the k8s-service-cidrs is invalid", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("kubernetes service network CIDR \"adsfasdfaf\" invalid: invalid CIDR address: adsfasdfaf"))
+			gomega.Expect(err).To(gomega.MatchError("kubernetes service network CIDR \"adsfasdfaf\" invalid: invalid CIDR address: adsfasdfaf"))
 			return nil
 		}
 		cliArgs := []string{
@@ -662,25 +662,25 @@ service-cidr=172.18.0.0/24
 			"-k8s-service-cidr=adsfasdfaf",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI legacy cluster-subnet option", func() {
+	ginkgo.It("overrides config file and defaults with CLI legacy cluster-subnet option", func() {
 		err := ioutil.WriteFile(cfgFile.Name(), []byte(`[default]
 cluster-subnets=172.18.0.0/23
 `), 0644)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(Default.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(Default.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("172.15.0.0/23"), 24},
 			}))
-			Expect(IPv4Mode).To(Equal(true))
-			Expect(IPv6Mode).To(Equal(false))
+			gomega.Expect(IPv4Mode).To(gomega.Equal(true))
+			gomega.Expect(IPv6Mode).To(gomega.Equal(false))
 			return nil
 		}
 		cliArgs := []string{
@@ -689,13 +689,13 @@ cluster-subnets=172.18.0.0/23
 			"-cluster-subnet=172.15.0.0/23",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("returns an error when the cluster-subnets is invalid", func() {
+	ginkgo.It("returns an error when the cluster-subnets is invalid", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("cluster subnet invalid: CIDR \"adsfasdfaf\" not properly formatted"))
+			gomega.Expect(err).To(gomega.MatchError("cluster subnet invalid: CIDR \"adsfasdfaf\" not properly formatted"))
 			return nil
 		}
 		cliArgs := []string{
@@ -703,13 +703,13 @@ cluster-subnets=172.18.0.0/23
 			"-cluster-subnets=adsfasdfaf",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("returns an error when the hybrid overlay cluster-subnets is invalid", func() {
+	ginkgo.It("returns an error when the hybrid overlay cluster-subnets is invalid", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("hybrid overlay cluster subnet invalid: CIDR \"adsfasdfaf\" not properly formatted"))
+			gomega.Expect(err).To(gomega.MatchError("hybrid overlay cluster subnet invalid: CIDR \"adsfasdfaf\" not properly formatted"))
 			return nil
 		}
 		cliArgs := []string{
@@ -718,21 +718,21 @@ cluster-subnets=172.18.0.0/23
 			"-enable-hybrid-overlay",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI legacy --init-gateways option", func() {
+	ginkgo.It("overrides config file and defaults with CLI legacy --init-gateways option", func() {
 		err := ioutil.WriteFile(cfgFile.Name(), []byte(`[gateway]
 mode=local
 `), 0644)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(Gateway.Mode).To(Equal(GatewayModeShared))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(Gateway.Mode).To(gomega.Equal(GatewayModeShared))
 			return nil
 		}
 		cliArgs := []string{
@@ -741,21 +741,21 @@ mode=local
 			"-init-gateways",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI legacy --gateway-local option", func() {
+	ginkgo.It("overrides config file and defaults with CLI legacy --gateway-local option", func() {
 		err := ioutil.WriteFile(cfgFile.Name(), []byte(`[gateway]
 mode=shared
 `), 0644)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
-			Expect(Gateway.Mode).To(Equal(GatewayModeLocal))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
+			gomega.Expect(Gateway.Mode).To(gomega.Equal(GatewayModeLocal))
 			return nil
 		}
 		cliArgs := []string{
@@ -765,13 +765,13 @@ mode=shared
 			"-gateway-local",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("returns an error when the gateway mode is invalid", func() {
+	ginkgo.It("returns an error when the gateway mode is invalid", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("invalid gateway mode \"adsfasdfaf\": expect one of shared,local"))
+			gomega.Expect(err).To(gomega.MatchError("invalid gateway mode \"adsfasdfaf\": expect one of shared,local"))
 			return nil
 		}
 		cliArgs := []string{
@@ -779,13 +779,13 @@ mode=shared
 			"-gateway-mode=adsfasdfaf",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("returns an error when the vlan-id is specified for mode other than shared gateway mode", func() {
+	ginkgo.It("returns an error when the vlan-id is specified for mode other than shared gateway mode", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("gateway VLAN ID option: 30 is supported only in shared gateway mode"))
+			gomega.Expect(err).To(gomega.MatchError("gateway VLAN ID option: 30 is supported only in shared gateway mode"))
 			return nil
 		}
 		cliArgs := []string{
@@ -794,55 +794,55 @@ mode=shared
 			"-gateway-vlanid=30",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("overrides config file and defaults with CLI options (multi-master)", func() {
+	ginkgo.It("overrides config file and defaults with CLI options (multi-master)", func() {
 		kubeconfigFile, err := createTempFile("kubeconfig")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeconfigFile)
 
 		kubeCAFile, err := createTempFile("kube-ca.crt")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAFile)
 
 		err = writeTestConfigFile(cfgFile.Name())
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Default.MTU).To(Equal(1234))
-			Expect(Default.ConntrackZone).To(Equal(5555))
-			Expect(Logging.File).To(Equal("/some/logfile"))
-			Expect(Logging.Level).To(Equal(3))
-			Expect(CNI.ConfDir).To(Equal("/some/cni/dir"))
-			Expect(CNI.Plugin).To(Equal("a-plugin"))
-			Expect(Kubernetes.Kubeconfig).To(Equal(kubeconfigFile))
-			Expect(Kubernetes.CACert).To(Equal(kubeCAFile))
-			Expect(Kubernetes.Token).To(Equal("asdfasdfasdfasfd"))
-			Expect(Kubernetes.APIServer).To(Equal("https://4.4.3.2:8080"))
-			Expect(Kubernetes.RawNoHostSubnetNodes).To(Equal("label=another-test-label"))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.15.0.0/24"))
+			gomega.Expect(Default.MTU).To(gomega.Equal(1234))
+			gomega.Expect(Default.ConntrackZone).To(gomega.Equal(5555))
+			gomega.Expect(Logging.File).To(gomega.Equal("/some/logfile"))
+			gomega.Expect(Logging.Level).To(gomega.Equal(3))
+			gomega.Expect(CNI.ConfDir).To(gomega.Equal("/some/cni/dir"))
+			gomega.Expect(CNI.Plugin).To(gomega.Equal("a-plugin"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(kubeconfigFile))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("asdfasdfasdfasfd"))
+			gomega.Expect(Kubernetes.APIServer).To(gomega.Equal("https://4.4.3.2:8080"))
+			gomega.Expect(Kubernetes.RawNoHostSubnetNodes).To(gomega.Equal("label=another-test-label"))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.15.0.0/24"))
 
-			Expect(OvnNorth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnNorth.PrivKey).To(Equal("/client/privkey"))
-			Expect(OvnNorth.Cert).To(Equal("/client/cert"))
-			Expect(OvnNorth.CACert).To(Equal("/client/cacert"))
-			Expect(OvnNorth.Address).To(
-				Equal("ssl:6.5.4.3:6651,ssl:6.5.4.4:6651,ssl:6.5.4.5:6651"))
-			Expect(OvnNorth.CertCommonName).To(Equal("testnbcommonname"))
+			gomega.Expect(OvnNorth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnNorth.PrivKey).To(gomega.Equal("/client/privkey"))
+			gomega.Expect(OvnNorth.Cert).To(gomega.Equal("/client/cert"))
+			gomega.Expect(OvnNorth.CACert).To(gomega.Equal("/client/cacert"))
+			gomega.Expect(OvnNorth.Address).To(
+				gomega.Equal("ssl:6.5.4.3:6651,ssl:6.5.4.4:6651,ssl:6.5.4.5:6651"))
+			gomega.Expect(OvnNorth.CertCommonName).To(gomega.Equal("testnbcommonname"))
 
-			Expect(OvnSouth.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(OvnSouth.PrivKey).To(Equal("/client/privkey2"))
-			Expect(OvnSouth.Cert).To(Equal("/client/cert2"))
-			Expect(OvnSouth.CACert).To(Equal("/client/cacert2"))
-			Expect(OvnSouth.Address).To(
-				Equal("ssl:6.5.4.1:6652,ssl:6.5.4.2:6652,ssl:6.5.4.3:6652"))
-			Expect(OvnSouth.CertCommonName).To(Equal("testsbcommonname"))
+			gomega.Expect(OvnSouth.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(OvnSouth.PrivKey).To(gomega.Equal("/client/privkey2"))
+			gomega.Expect(OvnSouth.Cert).To(gomega.Equal("/client/cert2"))
+			gomega.Expect(OvnSouth.CACert).To(gomega.Equal("/client/cacert2"))
+			gomega.Expect(OvnSouth.Address).To(
+				gomega.Equal("ssl:6.5.4.1:6652,ssl:6.5.4.2:6652,ssl:6.5.4.3:6652"))
+			gomega.Expect(OvnSouth.CertCommonName).To(gomega.Equal("testsbcommonname"))
 
 			return nil
 		}
@@ -872,41 +872,41 @@ mode=shared
 			"-sb-cert-common-name=testsbcommonname",
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("does not override config file settings with default cli options", func() {
+	ginkgo.It("does not override config file settings with default cli options", func() {
 		kubeconfigFile, err := createTempFile("kubeconfig")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeconfigFile)
 
 		kubeCAFile, err := createTempFile("kube-ca.crt")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer os.Remove(kubeCAFile)
 
 		err = writeTestConfigFile(cfgFile.Name())
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		app.Action = func(ctx *cli.Context) error {
 			var cfgPath string
 			cfgPath, err = InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfgPath).To(Equal(cfgFile.Name()))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(cfgPath).To(gomega.Equal(cfgFile.Name()))
 
-			Expect(Default.MTU).To(Equal(1500))
-			Expect(Default.ConntrackZone).To(Equal(64321))
-			Expect(Default.RawClusterSubnets).To(Equal("10.132.0.0/14/23"))
-			Expect(Default.ClusterSubnets).To(Equal([]CIDRNetworkEntry{
+			gomega.Expect(Default.MTU).To(gomega.Equal(1500))
+			gomega.Expect(Default.ConntrackZone).To(gomega.Equal(64321))
+			gomega.Expect(Default.RawClusterSubnets).To(gomega.Equal("10.132.0.0/14/23"))
+			gomega.Expect(Default.ClusterSubnets).To(gomega.Equal([]CIDRNetworkEntry{
 				{ovntest.MustParseIPNet("10.132.0.0/14"), 23},
 			}))
-			Expect(Logging.File).To(Equal("/var/log/ovnkube.log"))
-			Expect(Logging.Level).To(Equal(5))
-			Expect(CNI.ConfDir).To(Equal("/etc/cni/net.d22"))
-			Expect(CNI.Plugin).To(Equal("ovn-k8s-cni-overlay22"))
-			Expect(Kubernetes.Kubeconfig).To(Equal(kubeconfigFile))
-			Expect(Kubernetes.CACert).To(Equal(kubeCAFile))
-			Expect(Kubernetes.Token).To(Equal("TG9yZW0gaXBzdW0gZ"))
-			Expect(Kubernetes.RawServiceCIDRs).To(Equal("172.18.0.0/24"))
+			gomega.Expect(Logging.File).To(gomega.Equal("/var/log/ovnkube.log"))
+			gomega.Expect(Logging.Level).To(gomega.Equal(5))
+			gomega.Expect(CNI.ConfDir).To(gomega.Equal("/etc/cni/net.d22"))
+			gomega.Expect(CNI.Plugin).To(gomega.Equal("ovn-k8s-cni-overlay22"))
+			gomega.Expect(Kubernetes.Kubeconfig).To(gomega.Equal(kubeconfigFile))
+			gomega.Expect(Kubernetes.CACert).To(gomega.Equal(kubeCAFile))
+			gomega.Expect(Kubernetes.Token).To(gomega.Equal("TG9yZW0gaXBzdW0gZ"))
+			gomega.Expect(Kubernetes.RawServiceCIDRs).To(gomega.Equal("172.18.0.0/24"))
 
 			return nil
 		}
@@ -918,15 +918,15 @@ mode=shared
 			"-k8s-cacert=" + kubeCAFile,
 		}
 		err = app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("allows configuring a single-stack IPv6 cluster", func() {
+	ginkgo.It("allows configuring a single-stack IPv6 cluster", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(IPv4Mode).To(Equal(false))
-			Expect(IPv6Mode).To(Equal(true))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(IPv4Mode).To(gomega.Equal(false))
+			gomega.Expect(IPv6Mode).To(gomega.Equal(true))
 			return nil
 		}
 		cliArgs := []string{
@@ -935,15 +935,15 @@ mode=shared
 			"-k8s-service-cidrs=fd02::/112",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("allows configuring a dual-stack cluster", func() {
+	ginkgo.It("allows configuring a dual-stack cluster", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(IPv4Mode).To(Equal(true))
-			Expect(IPv6Mode).To(Equal(true))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(IPv4Mode).To(gomega.Equal(true))
+			gomega.Expect(IPv6Mode).To(gomega.Equal(true))
 			return nil
 		}
 		cliArgs := []string{
@@ -952,15 +952,15 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16,fd02::/112",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("allows configuring a dual-stack cluster with multiple IPv4 cluster subnet ranges", func() {
+	ginkgo.It("allows configuring a dual-stack cluster with multiple IPv4 cluster subnet ranges", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(IPv4Mode).To(Equal(true))
-			Expect(IPv6Mode).To(Equal(true))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(IPv4Mode).To(gomega.Equal(true))
+			gomega.Expect(IPv6Mode).To(gomega.Equal(true))
 			return nil
 		}
 		cliArgs := []string{
@@ -969,13 +969,13 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16,fd02::/112",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with IPv4 pods and IPv6 services", func() {
+	ginkgo.It("rejects a cluster with IPv4 pods and IPv6 services", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("illegal network configuration: IPv4 cluster subnet, IPv6 service subnet"))
+			gomega.Expect(err).To(gomega.MatchError("illegal network configuration: IPv4 cluster subnet, IPv6 service subnet"))
 			return nil
 		}
 		cliArgs := []string{
@@ -984,13 +984,13 @@ mode=shared
 			"-k8s-service-cidrs=fd02::/112",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with IPv6 pods and IPv4 services", func() {
+	ginkgo.It("rejects a cluster with IPv6 pods and IPv4 services", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("illegal network configuration: IPv6 cluster subnet, IPv4 service subnet"))
+			gomega.Expect(err).To(gomega.MatchError("illegal network configuration: IPv6 cluster subnet, IPv4 service subnet"))
 			return nil
 		}
 		cliArgs := []string{
@@ -999,13 +999,13 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with dual-stack pods and single-stack services", func() {
+	ginkgo.It("rejects a cluster with dual-stack pods and single-stack services", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("illegal network configuration: dual-stack cluster subnet, IPv4 service subnet"))
+			gomega.Expect(err).To(gomega.MatchError("illegal network configuration: dual-stack cluster subnet, IPv4 service subnet"))
 			return nil
 		}
 		cliArgs := []string{
@@ -1014,13 +1014,13 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with single-stack pods and dual-stack services", func() {
+	ginkgo.It("rejects a cluster with single-stack pods and dual-stack services", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("illegal network configuration: IPv6 cluster subnet, dual-stack service subnet"))
+			gomega.Expect(err).To(gomega.MatchError("illegal network configuration: IPv6 cluster subnet, dual-stack service subnet"))
 			return nil
 		}
 		cliArgs := []string{
@@ -1029,13 +1029,13 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16,fd02::/112",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with multiple single-stack service CIDRs", func() {
+	ginkgo.It("rejects a cluster with multiple single-stack service CIDRs", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("kubernetes service-cidrs must contain either a single CIDR or else an IPv4/IPv6 pair"))
+			gomega.Expect(err).To(gomega.MatchError("kubernetes service-cidrs must contain either a single CIDR or else an IPv4/IPv6 pair"))
 			return nil
 		}
 		cliArgs := []string{
@@ -1044,13 +1044,13 @@ mode=shared
 			"-k8s-service-cidrs=172.30.0.0/16,172.31.0.0/16",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("rejects a cluster with dual-stack cluster subnets and single-stack hybrid overlap subnets", func() {
+	ginkgo.It("rejects a cluster with dual-stack cluster subnets and single-stack hybrid overlap subnets", func() {
 		app.Action = func(ctx *cli.Context) error {
 			_, err := InitConfig(ctx, kexec.New(), nil)
-			Expect(err).To(MatchError("illegal network configuration: dual-stack cluster subnet, dual-stack service subnet, IPv4 hybrid overlay subnet"))
+			gomega.Expect(err).To(gomega.MatchError("illegal network configuration: dual-stack cluster subnet, dual-stack service subnet, IPv4 hybrid overlay subnet"))
 			return nil
 		}
 		cliArgs := []string{
@@ -1061,26 +1061,26 @@ mode=shared
 			"-hybrid-overlay-cluster-subnets=10.132.0.0/14/23",
 		}
 		err := app.Run(cliArgs)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	Describe("OvnDBAuth operations", func() {
+	ginkgo.Describe("OvnDBAuth operations", func() {
 		var certFile, keyFile, caFile string
 
-		BeforeEach(func() {
+		ginkgo.BeforeEach(func() {
 			var err error
 			certFile, err = createTempFile("cert.crt")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			keyFile, err = createTempFile("priv.key")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			caFile = filepath.Join(tmpDir, "ca.crt")
 		})
 
-		AfterEach(func() {
+		ginkgo.AfterEach(func() {
 			err := os.Remove(certFile)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = os.Remove(keyFile)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			os.Remove(caFile)
 		})
 
@@ -1091,7 +1091,7 @@ mode=shared
 			sbDummyCommonName        = "cfg-sbcommonname"
 		)
 
-		It("configures client northbound SSL correctly", func() {
+		ginkgo.It("configures client northbound SSL correctly", func() {
 			fexec := ovntest.NewFakeExec()
 			fexec.AddFakeCmdsNoOutputNoError([]string{
 				"ovn-nbctl --db=" + nbURL + " --timeout=5 --private-key=" + keyFile + " --certificate=" + certFile + " --bootstrap-ca-cert=" + caFile + " list nb_global",
@@ -1106,23 +1106,23 @@ mode=shared
 				CertCommonName: nbDummyCommonName,
 			}
 			a, err := buildOvnAuth(fexec, true, cliConfig, &OvnAuthConfig{}, true)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(a.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(a.PrivKey).To(Equal(keyFile))
-			Expect(a.Cert).To(Equal(certFile))
-			Expect(a.CACert).To(Equal(caFile))
-			Expect(a.Address).To(Equal(nbURL))
-			Expect(a.CertCommonName).To(Equal(nbDummyCommonName))
-			Expect(a.northbound).To(BeTrue())
-			Expect(a.externalID).To(Equal("ovn-nb"))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(a.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(a.PrivKey).To(gomega.Equal(keyFile))
+			gomega.Expect(a.Cert).To(gomega.Equal(certFile))
+			gomega.Expect(a.CACert).To(gomega.Equal(caFile))
+			gomega.Expect(a.Address).To(gomega.Equal(nbURL))
+			gomega.Expect(a.CertCommonName).To(gomega.Equal(nbDummyCommonName))
+			gomega.Expect(a.northbound).To(gomega.BeTrue())
+			gomega.Expect(a.externalID).To(gomega.Equal("ovn-nb"))
 
-			Expect(a.GetURL()).To(Equal(nbURL))
+			gomega.Expect(a.GetURL()).To(gomega.Equal(nbURL))
 			err = a.SetDBAuth()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 		})
 
-		It("configures client southbound SSL correctly", func() {
+		ginkgo.It("configures client southbound SSL correctly", func() {
 			fexec := ovntest.NewFakeExec()
 			fexec.AddFakeCmdsNoOutputNoError([]string{
 				"ovn-nbctl --db=" + sbURL + " --timeout=5 --private-key=" + keyFile + " --certificate=" + certFile + " --bootstrap-ca-cert=" + caFile + " list nb_global",
@@ -1139,20 +1139,20 @@ mode=shared
 				CertCommonName: sbDummyCommonName,
 			}
 			a, err := buildOvnAuth(fexec, false, cliConfig, &OvnAuthConfig{}, false)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(a.Scheme).To(Equal(OvnDBSchemeSSL))
-			Expect(a.PrivKey).To(Equal(keyFile))
-			Expect(a.Cert).To(Equal(certFile))
-			Expect(a.CACert).To(Equal(caFile))
-			Expect(a.Address).To(Equal(sbURL))
-			Expect(a.CertCommonName).To(Equal(sbDummyCommonName))
-			Expect(a.northbound).To(BeFalse())
-			Expect(a.externalID).To(Equal("ovn-remote"))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(a.Scheme).To(gomega.Equal(OvnDBSchemeSSL))
+			gomega.Expect(a.PrivKey).To(gomega.Equal(keyFile))
+			gomega.Expect(a.Cert).To(gomega.Equal(certFile))
+			gomega.Expect(a.CACert).To(gomega.Equal(caFile))
+			gomega.Expect(a.Address).To(gomega.Equal(sbURL))
+			gomega.Expect(a.CertCommonName).To(gomega.Equal(sbDummyCommonName))
+			gomega.Expect(a.northbound).To(gomega.BeFalse())
+			gomega.Expect(a.externalID).To(gomega.Equal("ovn-remote"))
 
-			Expect(a.GetURL()).To(Equal(sbURL))
+			gomega.Expect(a.GetURL()).To(gomega.Equal(sbURL))
 			err = a.SetDBAuth()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 		})
 
 		const (
@@ -1162,7 +1162,7 @@ mode=shared
 			sbURLConverted string = "tcp:1.2.3.4:6642"
 		)
 
-		It("configures client northbound TCP legacy address correctly", func() {
+		ginkgo.It("configures client northbound TCP legacy address correctly", func() {
 			fexec := ovntest.NewFakeExec()
 			fexec.AddFakeCmdsNoOutputNoError([]string{
 				"ovs-vsctl --timeout=15 set Open_vSwitch . external_ids:ovn-nb=\"" + nbURLConverted + "\"",
@@ -1170,20 +1170,20 @@ mode=shared
 
 			cliConfig := &OvnAuthConfig{Address: nbURLLegacy}
 			a, err := buildOvnAuth(fexec, true, cliConfig, &OvnAuthConfig{}, true)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(a.Scheme).To(Equal(OvnDBSchemeTCP))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(a.Scheme).To(gomega.Equal(OvnDBSchemeTCP))
 			// Config should convert :// to : in addresses
-			Expect(a.Address).To(Equal(nbURLConverted))
-			Expect(a.northbound).To(BeTrue())
-			Expect(a.externalID).To(Equal("ovn-nb"))
+			gomega.Expect(a.Address).To(gomega.Equal(nbURLConverted))
+			gomega.Expect(a.northbound).To(gomega.BeTrue())
+			gomega.Expect(a.externalID).To(gomega.Equal("ovn-nb"))
 
-			Expect(a.GetURL()).To(Equal(nbURLConverted))
+			gomega.Expect(a.GetURL()).To(gomega.Equal(nbURLConverted))
 			err = a.SetDBAuth()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 		})
 
-		It("configures client southbound TCP legacy address correctly", func() {
+		ginkgo.It("configures client southbound TCP legacy address correctly", func() {
 			fexec := ovntest.NewFakeExec()
 			fexec.AddFakeCmdsNoOutputNoError([]string{
 				"ovs-vsctl --timeout=15 set Open_vSwitch . external_ids:ovn-nb=\"" + nbURLConverted + "\"",
@@ -1191,17 +1191,17 @@ mode=shared
 
 			cliConfig := &OvnAuthConfig{Address: nbURLLegacy}
 			a, err := buildOvnAuth(fexec, true, cliConfig, &OvnAuthConfig{}, true)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(a.Scheme).To(Equal(OvnDBSchemeTCP))
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(a.Scheme).To(gomega.Equal(OvnDBSchemeTCP))
 			// Config should convert :// to : in addresses
-			Expect(a.Address).To(Equal(nbURLConverted))
-			Expect(a.northbound).To(BeTrue())
-			Expect(a.externalID).To(Equal("ovn-nb"))
+			gomega.Expect(a.Address).To(gomega.Equal(nbURLConverted))
+			gomega.Expect(a.northbound).To(gomega.BeTrue())
+			gomega.Expect(a.externalID).To(gomega.Equal("ovn-nb"))
 
-			Expect(a.GetURL()).To(Equal(nbURLConverted))
+			gomega.Expect(a.GetURL()).To(gomega.Equal(nbURLConverted))
 			err = a.SetDBAuth()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 		})
 	})
 
@@ -1223,9 +1223,9 @@ mode=shared
 			}
 			err := runInit(app, runType, cfgFile, finalArgs...)
 			if match != "" {
-				Expect(err.Error()).To(ContainSubstring(match))
+				gomega.Expect(err.Error()).To(gomega.ContainSubstring(match))
 			} else {
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			}
 		}
 	}
@@ -1235,7 +1235,7 @@ mode=shared
 		for _, dir := range []string{"nb", "sb"} {
 			for runType := 1; runType <= 3; runType++ {
 				realDesc := fmt.Sprintf("(%d/%s) %s", runType, dir, desc)
-				It(realDesc, createOneTest(runType, dir, match, getArgs))
+				ginkgo.It(realDesc, createOneTest(runType, dir, match, getArgs))
 			}
 		}
 	}
@@ -1244,15 +1244,15 @@ mode=shared
 	generateTestsSimple := func(desc, match string, args ...string) {
 		for runType := 1; runType <= 3; runType++ {
 			realDesc := fmt.Sprintf("(%d) %s", runType, desc)
-			It(realDesc, createOneTest(runType, "", match, func() []string {
+			ginkgo.It(realDesc, createOneTest(runType, "", match, func() []string {
 				return args
 			}))
 		}
 	}
 
 	// Run once without config file, once with
-	Describe("Kubernetes config options", func() {
-		Context("returns an error when the", func() {
+	ginkgo.Describe("Kubernetes config options", func() {
+		ginkgo.Context("returns an error when the", func() {
 			generateTestsSimple("CA cert does not exist",
 				"kubernetes CA certificate file \"/foo/bar/baz.cert\" not found",
 				"-k8s-apiserver=https://localhost:8443", "-k8s-cacert=/foo/bar/baz.cert")
@@ -1271,26 +1271,26 @@ mode=shared
 		})
 	})
 
-	Describe("OVN API config options", func() {
+	ginkgo.Describe("OVN API config options", func() {
 		var certFile, keyFile, caFile string
 
-		BeforeEach(func() {
+		ginkgo.BeforeEach(func() {
 			var err error
 			certFile, err = createTempFile("cert.crt")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			keyFile, err = createTempFile("priv.key")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			caFile, err = createTempFile("ca.crt")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		AfterEach(func() {
+		ginkgo.AfterEach(func() {
 			os.Remove(certFile)
 			os.Remove(keyFile)
 			os.Remove(caFile)
 		})
 
-		Context("returns an error when", func() {
+		ginkgo.Context("returns an error when", func() {
 			generateTests("the scheme is not empty/tcp/ssl",
 				"unknown OVN DB scheme \"blah\"",
 				func() []string {
@@ -1325,7 +1325,7 @@ mode=shared
 				})
 		})
 
-		Context("does not return an error when", func() {
+		ginkgo.Context("does not return an error when", func() {
 			generateTests("the SSL scheme is missing a client CA cert", "",
 				func() []string {
 					return []string{

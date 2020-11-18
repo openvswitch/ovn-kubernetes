@@ -9,8 +9,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 	kapi "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,8 +23,8 @@ import (
 )
 
 func TestEventHandler(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Event Handler Suite")
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Event Handler Suite")
 }
 
 func newPod(name, namespace string) *kapi.Pod {
@@ -52,7 +52,7 @@ func newPod(name, namespace string) *kapi.Pod {
 	}
 }
 
-var _ = Describe("Informer Event Handler Tests", func() {
+var _ = ginkgo.Describe("Informer Event Handler Tests", func() {
 	const (
 		namespace string = "test"
 	)
@@ -61,17 +61,17 @@ var _ = Describe("Informer Event Handler Tests", func() {
 		wg       *sync.WaitGroup
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		stopChan = make(chan struct{})
 		wg = &sync.WaitGroup{}
 	})
 
-	AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		close(stopChan)
 		wg.Wait()
 	})
 
-	It("processes an add event", func() {
+	ginkgo.It("processes an add event", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -117,23 +117,23 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			ns, err := k.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return ns != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		pod := newPod("foo", namespace)
 		_, err := k.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(0)), "deletes")
-		Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(1)), "adds")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(0)), "deletes")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(1)), "adds")
 	})
 
-	It("do not processes an add event if the pod is set for deletion", func() {
+	ginkgo.It("do not processes an add event if the pod is set for deletion", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -179,26 +179,26 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			ns, err := k.CoreV1().Namespaces().Get(context.TODO(), namespace, metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return ns != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		pod := newPod("foo", namespace)
 		now := metav1.Now()
 		pod.SetDeletionTimestamp(&now)
 
 		_, err := k.CoreV1().Pods(namespace).Create(context.TODO(), pod, metav1.CreateOptions{})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(0)), "deletes")
-		Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(0)), "adds")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(0)), "deletes")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(0)), "adds")
 	})
 
-	It("adds existing pod and processes an update event", func() {
+	ginkgo.It("adds existing pod and processes an update event", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -248,35 +248,36 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			pod, err := k.CoreV1().Pods(namespace).Get(context.TODO(), "foo", metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return pod != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		pod.Annotations = map[string]string{"bar": "baz"}
 		pod.ResourceVersion = "11"
 
 		_, err := k.CoreV1().Pods(namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
-		Expect(err).NotTo(HaveOccurred())
 
-		Eventually(func() (bool, error) {
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Eventually(func() (bool, error) {
 			pod, err := k.CoreV1().Pods(namespace).Get(context.TODO(), "foo", metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return pod.ResourceVersion == "11", nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		// no deletes
-		Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(0)), "deletes")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(0)), "deletes")
 		// two updates, initial add from cache + update event
-		Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(2)), "adds")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(2)), "adds")
 	})
 
-	It("adds existing pod and do not processes an update event if it was set for deletion", func() {
+	ginkgo.It("adds existing pod and do not processes an update event if it was set for deletion", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -326,13 +327,13 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			pod, err := k.CoreV1().Pods(namespace).Get(context.TODO(), "foo", metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return pod != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		pod.Annotations = map[string]string{"bar": "baz"}
 		pod.ResourceVersion = "11"
@@ -340,14 +341,14 @@ var _ = Describe("Informer Event Handler Tests", func() {
 		pod.SetDeletionTimestamp(&now)
 
 		_, err := k.CoreV1().Pods(namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		// no deletes
-		Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(0)), "deletes")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(0)), "deletes")
 		// only initial add from cache event
-		Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(1)), "adds")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(1)), "adds")
 	})
 
-	It("adds existing pod and processes a delete event", func() {
+	ginkgo.It("adds existing pod and processes a delete event", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -396,24 +397,24 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			pod, err := k.CoreV1().Pods(namespace).Get(context.TODO(), "foo", metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return pod != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		err := k.CoreV1().Pods(namespace).Delete(context.TODO(), "foo", *metav1.NewDeleteOptions(0))
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// initial add from the cache
-		Consistently(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(1)), "adds")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(1)), "adds")
 		// one delete event
-		Eventually(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(1)), "deletes")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(1)), "deletes")
 	})
 
-	It("ignores updates using DiscardAllUpdates", func() {
+	ginkgo.It("ignores updates using DiscardAllUpdates", func() {
 		adds := int32(0)
 		deletes := int32(0)
 
@@ -463,29 +464,29 @@ var _ = Describe("Informer Event Handler Tests", func() {
 			},
 		)
 
-		Eventually(func() (bool, error) {
+		gomega.Eventually(func() (bool, error) {
 			pod, err := k.CoreV1().Pods(namespace).Get(context.TODO(), "foo", metav1.GetOptions{})
 			if err != nil {
 				return false, err
 			}
 			return pod != nil, nil
-		}, 2).Should(BeTrue())
+		}, 2).Should(gomega.BeTrue())
 
 		pod.Annotations = map[string]string{"bar": "baz"}
 		pod.ResourceVersion = "1"
 		_, err := k.CoreV1().Pods(namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// no deletes
-		Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(Equal(int32(0)), "deletes")
+		gomega.Consistently(func() int32 { return atomic.LoadInt32(&deletes) }).Should(gomega.Equal(int32(0)), "deletes")
 		// only initial add, no further updates
-		Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(Equal(int32(1)), "adds")
+		gomega.Eventually(func() int32 { return atomic.LoadInt32(&adds) }).Should(gomega.Equal(int32(1)), "adds")
 	})
 
 })
 
-var _ = Describe("Event Handler Internals", func() {
-	It("should enqueue a well formed event", func() {
+var _ = ginkgo.Describe("Event Handler Internals", func() {
+	ginkgo.It("should enqueue a well formed event", func() {
 		k := fake.NewSimpleClientset()
 		factory := informers.NewSharedInformerFactory(k, 0)
 		e := eventHandler{
@@ -506,10 +507,10 @@ var _ = Describe("Event Handler Internals", func() {
 
 		e.enqueue(obj)
 
-		Expect(e.workqueue.Len()).To(Equal(1))
+		gomega.Expect(e.workqueue.Len()).To(gomega.Equal(1))
 	})
 
-	It("should enqueue a well formed delete event", func() {
+	ginkgo.It("should enqueue a well formed delete event", func() {
 		k := fake.NewSimpleClientset()
 		factory := informers.NewSharedInformerFactory(k, 0)
 		e := eventHandler{
@@ -530,15 +531,15 @@ var _ = Describe("Event Handler Internals", func() {
 
 		e.enqueueDelete(obj)
 
-		Expect(e.workqueue.Len()).To(Equal(1))
+		gomega.Expect(e.workqueue.Len()).To(gomega.Equal(1))
 
 		_, exists, err := e.deletedIndexer.GetByKey("foo/bar")
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		Expect(exists).To(BeTrue())
+		gomega.Expect(exists).To(gomega.BeTrue())
 	})
 
-	It("should not enqueue object set for deletion", func() {
+	ginkgo.It("should not enqueue object set for deletion", func() {
 		k := fake.NewSimpleClientset()
 		factory := informers.NewSharedInformerFactory(k, 0)
 		e := eventHandler{
@@ -561,6 +562,6 @@ var _ = Describe("Event Handler Internals", func() {
 
 		e.enqueue(obj)
 
-		Expect(e.workqueue.Len()).To(Equal(0))
+		gomega.Expect(e.workqueue.Len()).To(gomega.Equal(0))
 	})
 })
