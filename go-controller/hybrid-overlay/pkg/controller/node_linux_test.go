@@ -28,8 +28,8 @@ import (
 	"github.com/containernetworking/plugins/pkg/testutils"
 	"github.com/vishvananda/netlink"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 const (
@@ -122,27 +122,27 @@ func expectRouteForSubnet(routes []netlink.Route, subnet *net.IPNet, hoIfAddr ne
 			break
 		}
 	}
-	Expect(found).To(BeTrue(), fmt.Sprintf("failed to find hybrid overlay host route %s via %s", subnet, hoIfAddr))
+	gomega.Expect(found).To(gomega.BeTrue(), fmt.Sprintf("failed to find hybrid overlay host route %s via %s", subnet, hoIfAddr))
 }
 
 func validateNetlinkState(nodeSubnet string) {
 	link, err := netlink.LinkByName(extBridgeName)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(link.Attrs().Flags & net.FlagUp).To(Equal(net.FlagUp))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(link.Attrs().Flags & net.FlagUp).To(gomega.Equal(net.FlagUp))
 
 	link, err = netlink.LinkByName(types.K8sMgmtIntfName)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(link.Attrs().Flags & net.FlagUp).To(Equal(net.FlagUp))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(link.Attrs().Flags & net.FlagUp).To(gomega.Equal(net.FlagUp))
 
 	routes, err := netlink.RouteList(link, netlink.FAMILY_ALL)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	// Expect a route to the hybrid overlay CIDR via the .3 address
 	// through the management port
 	_, ipnet, err := net.ParseCIDR(nodeSubnet)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	hybridOverlayIfAddr := util.GetNodeHybridOverlayIfAddr(ipnet)
-	Expect(len(config.HybridOverlay.ClusterSubnets)).ToNot(BeZero())
+	gomega.Expect(len(config.HybridOverlay.ClusterSubnets)).ToNot(gomega.BeZero())
 	for _, hoSubnet := range config.HybridOverlay.ClusterSubnets {
 		expectRouteForSubnet(routes, hoSubnet.CIDR, hybridOverlayIfAddr.IP)
 	}
@@ -150,21 +150,21 @@ func validateNetlinkState(nodeSubnet string) {
 
 func appRun(app *cli.App, netns ns.NetNS) {
 	_ = netns.Do(func(ns.NetNS) error {
-		defer GinkgoRecover()
+		defer ginkgo.GinkgoRecover()
 		err := app.Run([]string{
 			app.Name,
 			"-enable-hybrid-overlay",
 			"-no-hostsubnet-nodes=" + v1.LabelOSStable + "=windows",
 			"-cluster-subnets=10.130.0.0/15/24",
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		return nil
 	})
 }
 
 func createNodeAnnotationsForSubnet(subnet string) map[string]string {
 	subnetAnnotations, err := util.CreateNodeHostSubnetAnnotation(ovntest.MustParseIPNets(subnet))
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	annotations := make(map[string]string)
 	for k, v := range subnetAnnotations {
 		annotations[k] = fmt.Sprintf("%s", v)
@@ -172,7 +172,7 @@ func createNodeAnnotationsForSubnet(subnet string) map[string]string {
 	return annotations
 }
 
-var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
+var _ = ginkgo.Describe("Hybrid Overlay Node Linux Operations", func() {
 	var (
 		app      *cli.App
 		fexec    *ovntest.FakeExec
@@ -185,7 +185,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		thisSubnet string = "1.2.3.0/24"
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
 
@@ -198,35 +198,35 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 		fexec = ovntest.NewLooseCompareFakeExec()
 		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		netns, err = testutils.NewNS()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// prepare br-ext and ovn-k8s-mp0 in original namespace
 		_ = netns.Do(func(ns.NetNS) error {
-			defer GinkgoRecover()
+			defer ginkgo.GinkgoRecover()
 			ovntest.AddLink(extBridgeName)
 
 			// Set up management interface with its address
 			link := ovntest.AddLink(types.K8sMgmtIntfName)
 			_, thisNet, err := net.ParseCIDR(thisSubnet)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			mgmtIfAddr := util.GetNodeManagementIfAddr(thisNet)
 			err = netlink.AddrAdd(link, &netlink.Addr{IPNet: mgmtIfAddr})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			return nil
 		})
 	})
 
-	AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		close(stopChan)
 		wg.Wait()
-		Expect(netns.Close()).To(Succeed())
-		Expect(testutils.UnmountNS(netns)).To(Succeed())
+		gomega.Expect(netns.Close()).To(gomega.Succeed())
+		gomega.Expect(testutils.UnmountNS(netns)).To(gomega.Succeed())
 	})
 
-	It("does not set up tunnels for non-hybrid-overlay nodes without annotations", func() {
+	ginkgo.It("does not set up tunnels for non-hybrid-overlay nodes without annotations", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				node1Name string = "node1"
@@ -246,7 +246,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
@@ -257,7 +257,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -273,7 +273,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		appRun(app, netns)
 	})
 
-	It("does not set up tunnels for non-hybrid-overlay nodes with subnet annotations", func() {
+	ginkgo.It("does not set up tunnels for non-hybrid-overlay nodes with subnet annotations", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				node1Name   string = "node1"
@@ -296,7 +296,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			n, err := NewNode(
@@ -306,7 +306,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -322,7 +322,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		appRun(app, netns)
 	})
 
-	It("sets up local node hybrid overlay bridge", func() {
+	ginkgo.It("sets up local node hybrid overlay bridge", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				thisDrMAC string = "22:33:44:55:66:77"
@@ -344,7 +344,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 			config.HybridOverlay.RawClusterSubnets = "10.0.0.1/16/23"
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			n, err := NewNode(
@@ -354,10 +354,10 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			err = n.controller.EnsureHybridOverlayBridge(node)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// FIXME
 			// Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
@@ -366,7 +366,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		}
 		appRun(app, netns)
 	})
-	It("sets up local linux pod", func() {
+	ginkgo.It("sets up local linux pod", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				thisDrMAC string = "22:33:44:55:66:77"
@@ -392,7 +392,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 			config.HybridOverlay.RawClusterSubnets = "10.0.0.1/16/23"
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
@@ -403,22 +403,22 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			err = n.controller.EnsureHybridOverlayBridge(node)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// FIXME
 			// Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
 			validateNetlinkState(thisSubnet)
 			err = n.controller.AddPod(testPod)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			return nil
 		}
 		appRun(app, netns)
 	})
 
-	It("sets up tunnels for Windows nodes", func() {
+	ginkgo.It("sets up tunnels for Windows nodes", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				node1Name   string = "node1"
@@ -447,7 +447,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
@@ -458,7 +458,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -474,7 +474,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		appRun(app, netns)
 	})
 
-	It("removes stale node flows on initial sync", func() {
+	ginkgo.It("removes stale node flows on initial sync", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				node1Name string = "node1"
@@ -500,7 +500,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			n, err := NewNode(
@@ -510,7 +510,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -526,7 +526,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		appRun(app, netns)
 	})
 
-	It("removes stale pod flows on initial sync", func() {
+	ginkgo.It("removes stale pod flows on initial sync", func() {
 		app.Action = func(ctx *cli.Context) error {
 			fakeClient := fake.NewSimpleClientset()
 
@@ -551,7 +551,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			n, err := NewNode(
@@ -561,7 +561,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -572,7 +572,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			// Wait for the controller to start
 			err = wait.PollImmediate(500*time.Millisecond, 5*time.Second, func() (bool, error) { return n.ready == true, nil })
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// FIXME
 			// Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
@@ -581,7 +581,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 		appRun(app, netns)
 	})
 
-	It("sets up local pod flows", func() {
+	ginkgo.It("sets up local pod flows", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				pod1IP   string = "1.2.3.5"
@@ -624,7 +624,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			n, err := NewNode(
@@ -634,7 +634,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 				f.Core().V1().Pods().Informer(),
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			// FIXME: DT Why are these needed?
 			// n.drIP = net.ParseIP(hybIP)
 			// n.drMAC, err = net.ParseMAC(hybMAC)
@@ -649,7 +649,7 @@ var _ = Describe("Hybrid Overlay Node Linux Operations", func() {
 
 			// Wait for the controller to start
 			err = wait.PollImmediate(500*time.Millisecond, 5*time.Second, func() (bool, error) { return n.ready == true, nil })
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// FIXME
 			// Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)

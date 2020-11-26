@@ -24,8 +24,8 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 const hoNodeCliArg string = "-no-hostsubnet-nodes=" + v1.LabelOSStable + "=windows"
@@ -33,22 +33,22 @@ const hoNodeCliArg string = "-no-hostsubnet-nodes=" + v1.LabelOSStable + "=windo
 func populatePortAddresses(nodeName, hybMAC, hybIP string, ovnClient goovn.Client) {
 	lsp := "int-" + nodeName
 	cmd, err := ovnClient.LSPAdd(nodeName, lsp)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = cmd.Execute()
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	addresses := hybMAC + " " + hybIP
 	addresses = strings.TrimSpace(addresses)
 	cmd, err = ovnClient.LSPSetDynamicAddresses(lsp, addresses)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = cmd.Execute()
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 func newTestNode(name, os, ovnHostSubnet, hybridHostSubnet, drMAC string) v1.Node {
 	annotations := make(map[string]string)
 	if ovnHostSubnet != "" {
 		subnetAnnotations, err := util.CreateNodeHostSubnetAnnotation(ovntest.MustParseIPNets(ovnHostSubnet))
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		for k, v := range subnetAnnotations {
 			annotations[k] = fmt.Sprintf("%s", v)
 		}
@@ -68,7 +68,7 @@ func newTestNode(name, os, ovnHostSubnet, hybridHostSubnet, drMAC string) v1.Nod
 	}
 }
 
-var _ = Describe("Hybrid SDN Master Operations", func() {
+var _ = ginkgo.Describe("Hybrid SDN Master Operations", func() {
 	var (
 		app      *cli.App
 		stopChan chan struct{}
@@ -76,7 +76,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 		fexec    *ovntest.FakeExec
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
 
@@ -87,16 +87,16 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 		wg = &sync.WaitGroup{}
 		fexec = ovntest.NewFakeExec()
 		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	AfterEach(func() {
+	ginkgo.AfterEach(func() {
 		close(stopChan)
 		wg.Wait()
 	})
 
 	const hybridOverlayClusterCIDR string = "11.1.0.0/16/24"
-	It("allocates and assigns a hybrid-overlay subnet to a Windows node that doesn't have one", func() {
+	ginkgo.It("allocates and assigns a hybrid-overlay subnet to a Windows node that doesn't have one", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeName   string = "node1"
@@ -110,7 +110,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
@@ -125,7 +125,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -136,24 +136,24 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			f.WaitForCacheSync(stopChan)
 
 			// Windows node should be allocated a subnet
-			Eventually(func() (map[string]string, error) {
+			gomega.Eventually(func() (map[string]string, error) {
 				updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil {
 					return nil, err
 				}
 				return updatedNode.Annotations, nil
-			}, 2).Should(HaveKeyWithValue(hotypes.HybridOverlayNodeSubnet, nodeSubnet))
+			}, 2).Should(gomega.HaveKeyWithValue(hotypes.HybridOverlayNodeSubnet, nodeSubnet))
 
-			Eventually(func() error {
+			gomega.Eventually(func() error {
 				updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil {
 					return err
 				}
 				_, err = util.ParseNodeHostSubnetAnnotation(updatedNode)
 				return err
-			}, 2).Should(MatchError(fmt.Sprintf("node %q has no \"k8s.ovn.org/node-subnets\" annotation", nodeName)))
+			}, 2).Should(gomega.MatchError(fmt.Sprintf("node %q has no \"k8s.ovn.org/node-subnets\" annotation", nodeName)))
 
-			Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
+			gomega.Eventually(fexec.CalledMatchesExpected, 2).Should(gomega.BeTrue(), fexec.ErrorDesc)
 			return nil
 		}
 
@@ -164,10 +164,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("sets up and cleans up a Linux node with a OVN hostsubnet annotation", func() {
+	ginkgo.It("sets up and cleans up a Linux node with a OVN hostsubnet annotation", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeName   string = "node1"
@@ -183,7 +183,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 
@@ -197,7 +197,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// #1 node add
 			addLinuxNodeCommands(fexec, nodeHOMAC, nodeName, nodeHOIP)
@@ -212,13 +212,13 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			}()
 			f.WaitForCacheSync(stopChan)
 
-			Eventually(func() (map[string]string, error) {
+			gomega.Eventually(func() (map[string]string, error) {
 				updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil {
 					return nil, err
 				}
 				return updatedNode.Annotations, nil
-			}, 2).Should(HaveKeyWithValue(hotypes.HybridOverlayDRMAC, nodeHOMAC))
+			}, 2).Should(gomega.HaveKeyWithValue(hotypes.HybridOverlayDRMAC, nodeHOMAC))
 
 			// Test that deleting the node cleans up the OVN objects
 			fexec.AddFakeCmdsNoOutputNoError([]string{
@@ -226,9 +226,9 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			})
 
 			err = fakeClient.CoreV1().Nodes().Delete(context.TODO(), nodeName, *metav1.NewDeleteOptions(0))
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
+			gomega.Eventually(fexec.CalledMatchesExpected, 2).Should(gomega.BeTrue(), fexec.ErrorDesc)
 			return nil
 		}
 
@@ -238,10 +238,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("handles a Linux node with no annotation but an existing port", func() {
+	ginkgo.It("handles a Linux node with no annotation but an existing port", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeName   string = "node1"
@@ -257,7 +257,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
 			mockOVNSBClient := ovntest.NewMockOVNClient(goovn.DBSB)
 
@@ -273,7 +273,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -283,13 +283,13 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			}()
 			f.WaitForCacheSync(stopChan)
 
-			Eventually(func() (map[string]string, error) {
+			gomega.Eventually(func() (map[string]string, error) {
 				updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 				if err != nil {
 					return nil, err
 				}
 				return updatedNode.Annotations, nil
-			}, 2).Should(HaveKeyWithValue(hotypes.HybridOverlayDRMAC, nodeHOMAC))
+			}, 2).Should(gomega.HaveKeyWithValue(hotypes.HybridOverlayDRMAC, nodeHOMAC))
 			return nil
 		}
 		err := app.Run([]string{
@@ -298,10 +298,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("cleans up a Linux node when the OVN hostsubnet annotation is removed", func() {
+	ginkgo.It("cleans up a Linux node when the OVN hostsubnet annotation is removed", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeName   string = "node1"
@@ -321,7 +321,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			})
 
 			_, err := config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
@@ -335,7 +335,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			populatePortAddresses(nodeName, nodeHOMAC, nodeHOIP, mockOVNNBClient)
 
@@ -349,22 +349,22 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 
 			k := &kube.Kube{KClient: fakeClient}
 			updatedNode, err := k.GetNode(nodeName)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			nodeAnnotator := kube.NewNodeAnnotator(k, updatedNode)
 			util.DeleteNodeHostSubnetAnnotation(nodeAnnotator)
 			err = nodeAnnotator.Run()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Eventually(func() (map[string]string, error) {
+			gomega.Eventually(func() (map[string]string, error) {
 				updatedNode, err = k.GetNode(nodeName)
 				if err != nil {
 					return nil, err
 				}
 				return updatedNode.Annotations, nil
-			}, 5).ShouldNot(HaveKey(hotypes.HybridOverlayDRMAC))
+			}, 5).ShouldNot(gomega.HaveKey(hotypes.HybridOverlayDRMAC))
 
-			Eventually(fexec.CalledMatchesExpected, 2).Should(BeTrue(), fexec.ErrorDesc)
+			gomega.Eventually(fexec.CalledMatchesExpected, 2).Should(gomega.BeTrue(), fexec.ErrorDesc)
 			return nil
 		}
 
@@ -374,10 +374,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("copies namespace annotations when a pod is added", func() {
+	ginkgo.It("copies namespace annotations when a pod is added", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nsName     string = "nstest"
@@ -412,7 +412,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			}...)
 
 			_, err := config.InitConfig(ctx, nil, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 			mockOVNNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
@@ -426,7 +426,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			populatePortAddresses(nodeName, nodeHOMAC, nodeHOIP, mockOVNNBClient)
 
@@ -438,7 +438,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			}()
 			f.WaitForCacheSync(stopChan)
 
-			Eventually(func() error {
+			gomega.Eventually(func() error {
 				pod, err := fakeClient.CoreV1().Pods(nsName).Get(context.TODO(), pod1Name, metav1.GetOptions{})
 				if err != nil {
 					return err
@@ -450,7 +450,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 					return fmt.Errorf("error with annotation %s. expected: %s, got: %s", hotypes.HybridOverlayVTEP, nsExGw, pod.Annotations[hotypes.HybridOverlayExternalGw])
 				}
 				return nil
-			}, 2).Should(Succeed())
+			}, 2).Should(gomega.Succeed())
 
 			return nil
 		}
@@ -461,10 +461,10 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("update pod annotations when a namespace is updated", func() {
+	ginkgo.It("update pod annotations when a namespace is updated", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nsName        string = "nstest"
@@ -502,7 +502,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 
 			addLinuxNodeCommands(fexec, nodeHOMAC, nodeName, nodeHOIP)
 			_, err := config.InitConfig(ctx, nil, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			f := informers.NewSharedInformerFactory(fakeClient, informer.DefaultResyncInterval)
 
 			k := &kube.Kube{KClient: fakeClient}
@@ -517,7 +517,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 				mockOVNSBClient,
 				informer.NewTestEventHandler,
 			)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			f.Start(stopChan)
 			wg.Add(1)
@@ -528,14 +528,14 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			f.WaitForCacheSync(stopChan)
 
 			updatedNs, err := fakeClient.CoreV1().Namespaces().Get(context.TODO(), nsName, metav1.GetOptions{})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			nsAnnotator := kube.NewNamespaceAnnotator(k, updatedNs)
 			nsAnnotator.Set(hotypes.HybridOverlayVTEP, nsVTEPUpdated)
 			nsAnnotator.Set(hotypes.HybridOverlayExternalGw, nsExGwUpdated)
 			err = nsAnnotator.Run()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Eventually(func() error {
+			gomega.Eventually(func() error {
 				pod, err := fakeClient.CoreV1().Pods(nsName).Get(context.TODO(), pod1Name, metav1.GetOptions{})
 				if err != nil {
 					return err
@@ -547,7 +547,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 					return fmt.Errorf("error with annotation %s. expected: %s, got: %s", hotypes.HybridOverlayExternalGw, nsExGwUpdated, pod.Annotations[hotypes.HybridOverlayExternalGw])
 				}
 				return nil
-			}, 2).Should(Succeed())
+			}, 2).Should(gomega.Succeed())
 
 			return nil
 		}
@@ -558,7 +558,7 @@ var _ = Describe("Hybrid SDN Master Operations", func() {
 			"-enable-hybrid-overlay",
 			"-hybrid-overlay-cluster-subnets=" + hybridOverlayClusterCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
 
