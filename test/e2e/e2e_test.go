@@ -2038,6 +2038,82 @@ var _ = ginkgo.Describe("e2e multiple ecmp external gateway validation", func() 
 	})
 })
 
+// Validate supplying an external gateway address that does not match
+// the address family of the pod fails. In this case, an IPv6 address is
+// provided as the external gateway address that does not match the
+// address family of the pod. The test expects the pod creation to fail.
+var _ = ginkgo.Describe("e2e mismatched address family external gateway", func() {
+	const (
+		svcname string = "external-gw-address-family-mismatch"
+	)
+
+	f := framework.NewDefaultFramework(svcname)
+
+	type nodeInfo struct {
+		name   string
+		nodeIP string
+	}
+
+	var (
+		workerNodeInfo nodeInfo
+	)
+
+	ginkgo.BeforeEach(func() {
+
+		// retrieve worker node names
+		nodes, err := e2enode.GetBoundedReadySchedulableNodes(f.ClientSet, 3)
+		framework.ExpectNoError(err)
+		if len(nodes.Items) < 3 {
+			framework.Failf(
+				"Test requires >= 3 Ready nodes, but there are only %v nodes",
+				len(nodes.Items))
+		}
+		ips := e2enode.CollectAddresses(nodes, v1.NodeInternalIP)
+		workerNodeInfo = nodeInfo{
+			name:   nodes.Items[1].Name,
+			nodeIP: ips[1],
+		}
+	})
+
+	ginkgo.AfterEach(func() {})
+
+	ginkgo.It("Should validate failure if an external gateway address does not match the address family of the pod", func() {
+
+		var (
+			pingSrc  string
+			validIP  net.IP
+			podName  = "e2e-mismatched-exgw-addresses"
+			command  = []string{"bash", "-c", "sleep 20000"}
+			exGWIPv6 = "fd00:10:244:2::6"
+		)
+
+		// annotate the test namespace with a v6 address
+		annotateArgs := []string{
+			"annotate",
+			"namespace",
+			f.Namespace.Name,
+			fmt.Sprintf("k8s.ovn.org/routing-external-gws=%s", exGWIPv6),
+		}
+		framework.Logf("Annotating the external gateway test namespace to the v6 address: %s ", exGWIPv6)
+		framework.RunKubectlOrDie(annotateArgs...)
+
+		ginkgo.By(fmt.Sprintf("Verifying the pod fails to start using mismatched address families between the pod and gateway"))
+		createGenericPod(f, podName, workerNodeInfo.name, f.Namespace.Name, command)
+		// the pod will fail to create due to mismatched gateway/pod address families
+		err := wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			pingSrc = getPodAddress(podName, f.Namespace.Name)
+			validIP = net.ParseIP(pingSrc)
+			if validIP == nil {
+				return false, nil
+			}
+			return true, nil
+		})
+		// Expect the readiness poll to fail since the pod and gateway address families do not match
+		framework.ExpectError(err, fmt.Sprintf("Exepcted error using a mismatched address family for the gateway for pod: %s, err: %v",
+			podName, err))
+	})
+})
+
 func getNodePodCIDR(nodeName string) (string, error) {
 	// retrieve the pod cidr for the worker node
 	jsonFlag := "jsonpath='{.metadata.annotations.k8s\\.ovn\\.org/node-subnets}'"
