@@ -21,6 +21,9 @@ kubeadmConfigPatches:
   kind: ClusterConfiguration
   metadata:
     name: config
+  apiServer:
+    extraArgs:
+      "enable-admission-plugins": "ValidatingAdmissionWebhook"
   etcd:
     local:
       dataDir: "/tmp/lib/etcd"

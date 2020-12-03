@@ -339,6 +339,15 @@ API_URL=$(kind get kubeconfig --internal --name ${KIND_CLUSTER_NAME} | grep serv
 
 # Create ovn-kube manifests
 pushd ../dist/images
+
+tmp_admission_dir=$(mktemp -d)
+cp gen_admission_keys.sh ${tmp_admission_dir}
+
+pushd ${tmp_admission_dir}
+sh gen_admission_keys.sh
+ca_pem_b64="$(openssl base64 -A <"ca.crt")"
+popd
+
 ./daemonset.sh \
   --image=${OVN_IMAGE} \
   --net-cidr=${NET_CIDR} \
@@ -353,7 +362,8 @@ pushd ../dist/images
   --ovn-unprivileged-mode=no \
   --master-loglevel=5 \
   --dbchecker-loglevel=5\
-  --egress-ip-enable=true
+  --egress-ip-enable=true \
+  --admission-ca-pem-b64=${ca_pem_b64}
 popd
 
 kind load docker-image ${OVN_IMAGE} --name ${KIND_CLUSTER_NAME}
@@ -383,8 +393,19 @@ run_kubectl apply -f ovnkube-master.yaml
 run_kubectl apply -f ovnkube-node.yaml
 popd
 
-# Delete kube-proxy
-run_kubectl -n kube-system delete ds kube-proxy
+pushd ${tmp_admission_dir}
+run_kubectl -n ovn-kubernetes create secret tls ovnkube-admission-controller-secret \
+    --cert "admission-server-tls.crt" \
+    --key "admission-server-tls.key"
+popd 
+rm -rf ${tmp_admission_dir}
+
+# Delete kube-proxy with `--wait=true` as to avoid creating REJECT rules for any succeeding resources while kube-proxy 
+# is still lying around
+run_kubectl -n kube-system --wait=true delete ds kube-proxy
+pushd ../dist/yaml
+run_kubectl apply -f ovnkube-admission.yaml
+popd
 kind get clusters
 kind get nodes --name ${KIND_CLUSTER_NAME}
 kind export kubeconfig --name ${KIND_CLUSTER_NAME}

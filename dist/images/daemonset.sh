@@ -39,6 +39,7 @@ OVN_HYBRID_OVERLAY_ENABLE=""
 OVN_DISABLE_SNAT_MULTIPLE_GWS=""
 OVN_MULTICAST_ENABLE=""
 OVN_EGRESSIP_ENABLE=
+OVN_WEBHOOK_CA_PEM_B64=
 
 # Parse parameters given as arguments to this script.
 while [ "$1" != "" ]; do
@@ -147,6 +148,9 @@ while [ "$1" != "" ]; do
   --egress-ip-enable)
     OVN_EGRESSIP_ENABLE=$VALUE
     ;;
+  --admission-ca-pem-b64)
+    OVN_WEBHOOK_CA_PEM_B64=$VALUE
+    ;;
   *)
     echo "WARNING: unknown parameter \"$PARAM\""
     exit 1
@@ -226,6 +230,9 @@ ovn_sb_raft_port=${OVN_SB_RAFT_PORT:-6644}
 echo "ovn_sb_raft_port: ${ovn_sb_raft_port}"
 ovn_multicast_enable=${OVN_MULTICAST_ENABLE}
 echo "ovn_multicast_enable: ${ovn_multicast_enable}"
+ovn_admission_ca_pem_b64=${OVN_WEBHOOK_CA_PEM_B64}
+echo "ovn_admission_ca_pem_b64: ${ovn_admission_ca_pem_b64}"
+
 
 ovn_image=${image} \
   ovn_image_pull_policy=${image_pull_policy} \
@@ -296,6 +303,11 @@ ovn_image=${image} \
   ovn_image_pull_policy=${image_pull_policy} \
   ovn_unprivileged_mode=${ovn_unprivileged_mode} \
   j2 ../templates/ovs-node.yaml.j2 -o ../yaml/ovs-node.yaml
+
+ovn_image=${image} \
+  ovn_image_pull_policy=${image_pull_policy} \
+  ca_pem_64=${ovn_admission_ca_pem_b64} \
+  j2 ../templates/ovnkube-admission.yaml.j2 -o ../yaml/ovnkube-admission.yaml
 
 # ovn-setup.yaml
 net_cidr=${OVN_NET_CIDR:-"10.128.0.0/14/23"}

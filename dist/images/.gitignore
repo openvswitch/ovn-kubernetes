@@ -4,3 +4,4 @@ ovnkube
 ovndbchecker
 hybrid-overlay-node
 git_info
+ovnkube-admission-controller
