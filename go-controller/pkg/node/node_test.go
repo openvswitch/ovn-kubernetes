@@ -11,14 +11,14 @@ import (
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
-var _ = Describe("Node Operations", func() {
+var _ = ginkgo.Describe("Node Operations", func() {
 	var app *cli.App
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
 
@@ -27,7 +27,7 @@ var _ = Describe("Node Operations", func() {
 		app.Flags = config.Flags
 	})
 
-	It("sets correct OVN external IDs", func() {
+	ginkgo.It("sets correct OVN external IDs", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeIP   string = "1.2.5.6"
@@ -62,22 +62,22 @@ var _ = Describe("Node Operations", func() {
 			})
 
 			err := util.SetExec(fexec)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			_, err = config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			err = setupOVNNode(&node)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 			return nil
 		}
 
 		err := app.Run([]string{app.Name})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
-	It("sets non-default OVN encap port", func() {
+	ginkgo.It("sets non-default OVN encap port", func() {
 		app.Action = func(ctx *cli.Context) error {
 			const (
 				nodeIP      string = "1.2.5.6"
@@ -129,20 +129,20 @@ var _ = Describe("Node Operations", func() {
 			})
 
 			err := util.SetExec(fexec)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			_, err = config.InitConfig(ctx, fexec, nil)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			config.Default.EncapPort = encapPort
 
 			err = setupOVNNode(&node)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-			Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+			gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 			return nil
 		}
 
 		err := app.Run([]string{app.Name})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })

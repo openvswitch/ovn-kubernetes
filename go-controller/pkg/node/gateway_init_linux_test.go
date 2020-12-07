@@ -32,8 +32,8 @@ import (
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
 	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 func startGateway(gw Gateway, wf factory.NodeWatchFactory) {
@@ -107,7 +107,7 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 			Cmd: "ovs-vsctl --timeout=15 -- --may-exist add-br breth0 -- br-set-external-id breth0 bridge-id breth0 -- br-set-external-id breth0 bridge-uplink eth0 -- set bridge breth0 fail-mode=standalone other_config:hwaddr=" + eth0MAC + " -- --may-exist add-port breth0 eth0 -- set port eth0 other-config:transient=true",
 			Action: func() error {
 				return testNS.Do(func(ns.NetNS) error {
-					defer GinkgoRecover()
+					defer ginkgo.GinkgoRecover()
 
 					// Create breth0 as a dummy link
 					err := netlink.LinkAdd(&netlink.Dummy{
@@ -116,9 +116,9 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 							HardwareAddr: ovntest.MustParseMAC(eth0MAC),
 						},
 					})
-					Expect(err).NotTo(HaveOccurred())
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					_, err = netlink.LinkByName("br" + eth0Name)
-					Expect(err).NotTo(HaveOccurred())
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return nil
 				})
 			},
@@ -186,10 +186,10 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		})
 
 		err := util.SetExec(fexec)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		_, err = config.InitConfig(ctx, fexec, nil)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		existingNode := v1.Node{ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
@@ -211,7 +211,7 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		stop := make(chan struct{})
 		wf, err := factory.NewNodeWatchFactory(fakeClient, nodeName)
 
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		defer func() {
 			close(stop)
 			wf.Shutdown()
@@ -224,62 +224,62 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		nodeAnnotator := kube.NewNodeAnnotator(k, &existingNode)
 
 		err = util.SetNodeHostSubnetAnnotation(nodeAnnotator, ovntest.MustParseIPNets(nodeSubnet))
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = nodeAnnotator.Run()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = testNS.Do(func(ns.NetNS) error {
-			defer GinkgoRecover()
+			defer ginkgo.GinkgoRecover()
 
 			gatewayNextHops, gatewayIntf, err := getGatewayNextHops()
 			sharedGw, err := newSharedGateway(nodeName, ovntest.MustParseIPNets(nodeSubnet), gatewayNextHops, gatewayIntf, nodeAnnotator)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = sharedGw.Init()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			startGateway(sharedGw, wf)
 			// check if IP addresses have been assigned to localnetGatewayNextHopPort interface
 			link, err := netlink.LinkByName(localnetGatewayNextHopPort)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			addresses, err := netlink.AddrList(link, syscall.AF_INET)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var foundAddr bool
 			expectedAddress, err := netlink.ParseAddr(brNextHopCIDR)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, a := range addresses {
 				if a.IP.Equal(expectedAddress.IP) && bytes.Equal(a.Mask, expectedAddress.Mask) {
 					foundAddr = true
 					break
 				}
 			}
-			Expect(foundAddr).To(BeTrue())
+			gomega.Expect(foundAddr).To(gomega.BeTrue())
 
 			err = nodeAnnotator.Run()
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			go sharedGw.Run(stop, &sync.WaitGroup{})
 
 			// Verify the code moved eth0's IP address, MAC, and routes
 			// over to breth0
 			l, err := netlink.LinkByName("breth0")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			addrs, err := netlink.AddrList(l, syscall.AF_INET)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var found bool
 			expectedAddr, err := netlink.ParseAddr(eth0CIDR)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			for _, a := range addrs {
 				if a.IP.Equal(expectedAddr.IP) && bytes.Equal(a.Mask, expectedAddr.Mask) {
 					found = true
 					break
 				}
 			}
-			Expect(found).To(BeTrue())
+			gomega.Expect(found).To(gomega.BeTrue())
 
-			Expect(l.Attrs().HardwareAddr.String()).To(Equal(eth0MAC))
+			gomega.Expect(l.Attrs().HardwareAddr.String()).To(gomega.Equal(eth0MAC))
 			return nil
 		})
 
-		Eventually(fexec.CalledMatchesExpected, 5).Should(BeTrue(), fexec.ErrorDesc)
+		gomega.Eventually(fexec.CalledMatchesExpected, 5).Should(gomega.BeTrue(), fexec.ErrorDesc)
 
 		expectedTables := map[string]util.FakeTable{
 			"filter": {
@@ -309,7 +309,7 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		}
 		f4 := iptV4.(*util.FakeIPTables)
 		err = f4.MatchState(expectedTables)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		expectedTables = map[string]util.FakeTable{
 			"filter": {},
@@ -317,7 +317,7 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		}
 		f6 := iptV6.(*util.FakeIPTables)
 		err = f6.MatchState(expectedTables)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		return nil
 	}
 
@@ -330,7 +330,7 @@ cookie=0x0, duration=8366.597s, table=1, n_packets=10641, n_bytes=10370087, prio
 		"--gateway-vlanid=" + fmt.Sprintf("%d", gatewayVLANID),
 		"--mtu=" + mtu,
 	})
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
 /* FIXME with updated local gw mode
@@ -493,17 +493,17 @@ func expectedIPTablesRules(gatewayIP string) map[string]util.FakeTable {
 	}
 }
 
-var _ = Describe("Gateway Init Operations", func() {
+var _ = ginkgo.Describe("Gateway Init Operations", func() {
 
 	var (
 		testNS ns.NetNS
 		app    *cli.App
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		var err error
 		testNS, err = testutils.NewNS()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
@@ -514,20 +514,20 @@ var _ = Describe("Gateway Init Operations", func() {
 
 		// Set up a fake br-local & LocalnetGatewayNextHopPort
 		testNS, err = testutils.NewNS()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = testNS.Do(func(ns.NetNS) error {
-			defer GinkgoRecover()
+			defer ginkgo.GinkgoRecover()
 
 			ovntest.AddLink("br-local")
 			ovntest.AddLink(localnetGatewayNextHopPort)
 
 			return nil
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	AfterEach(func() {
-		Expect(testNS.Close()).To(Succeed())
+	ginkgo.AfterEach(func() {
+		gomega.Expect(testNS.Close()).To(gomega.Succeed())
 	})
 	/* FIXME for updated local gw mode
 	Context("for localnet operations", func() {
@@ -592,7 +592,7 @@ var _ = Describe("Gateway Init Operations", func() {
 	})
 	*/
 
-	Context("for NIC-based operations", func() {
+	ginkgo.Context("for NIC-based operations", func() {
 		const (
 			eth0Name string = "eth0"
 			eth0IP   string = "192.168.1.10"
@@ -601,23 +601,23 @@ var _ = Describe("Gateway Init Operations", func() {
 		)
 		var eth0MAC string
 
-		BeforeEach(func() {
+		ginkgo.BeforeEach(func() {
 			// Set up a fake eth0
 			err := testNS.Do(func(ns.NetNS) error {
-				defer GinkgoRecover()
+				defer ginkgo.GinkgoRecover()
 
 				ovntest.AddLink(eth0Name)
 
 				l, err := netlink.LinkByName(eth0Name)
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = netlink.LinkSetUp(l)
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				// Add an IP address
 				addr, err := netlink.ParseAddr(eth0CIDR)
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = netlink.AddrAdd(l, addr)
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				eth0MAC = l.Attrs().HardwareAddr.String()
 
@@ -628,18 +628,18 @@ var _ = Describe("Gateway Init Operations", func() {
 					Dst:       ovntest.MustParseIPNet("0.0.0.0/0"),
 					Gw:        ovntest.MustParseIP(eth0GWIP),
 				})
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 				return nil
 			})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("sets up a shared interface gateway", func() {
+		ginkgo.It("sets up a shared interface gateway", func() {
 			shareGatewayInterfaceTest(app, testNS, eth0Name, eth0MAC, eth0IP, eth0GWIP, eth0CIDR, 0)
 		})
 
-		It("sets up a shared interface gateway with tagged VLAN", func() {
+		ginkgo.It("sets up a shared interface gateway with tagged VLAN", func() {
 			shareGatewayInterfaceTest(app, testNS, eth0Name, eth0MAC, eth0IP, eth0GWIP, eth0CIDR, 3000)
 		})
 

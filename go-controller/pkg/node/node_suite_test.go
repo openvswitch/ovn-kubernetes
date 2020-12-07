@@ -3,11 +3,11 @@ package node
 import (
 	"testing"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 func TestNodeSuite(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Node Suite")
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Node Suite")
 }

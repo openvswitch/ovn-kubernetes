@@ -6,8 +6,8 @@ import (
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 	"github.com/urfave/cli/v2"
 	kapi "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -44,13 +44,13 @@ func (p *fakePortManager) open(desc string, ip string, port int32, protocol kapi
 	p.tPortsMap[*localPort] = true
 	// check that we set the values for assertion
 	if len(p.tPortOpen) > 0 {
-		Expect(port).To(Equal(p.tPortOpen[p.tPortOpenCount]))
+		gomega.Expect(port).To(gomega.Equal(p.tPortOpen[p.tPortOpenCount]))
 	}
 	if len(p.tProtocolOpen) > 0 {
-		Expect(protocol).To(Equal(p.tProtocolOpen[p.tPortOpenCount]))
+		gomega.Expect(protocol).To(gomega.Equal(p.tProtocolOpen[p.tPortOpenCount]))
 	}
 	if len(p.tIPOpen) > 0 {
-		Expect(ip).To(Equal(p.tIPOpen[p.tPortOpenCount]))
+		gomega.Expect(ip).To(gomega.Equal(p.tIPOpen[p.tPortOpenCount]))
 	}
 	p.tPortOpenCount++
 	return nil
@@ -62,17 +62,17 @@ func (p *fakePortManager) close(desc string, ip string, port int32, protocol kap
 		return portError
 	}
 	_, exists := p.tPortsMap[*localPort]
-	Expect(exists).To(Equal(true))
+	gomega.Expect(exists).To(gomega.Equal(true))
 	delete(p.tPortsMap, *localPort)
 	// check that we set the values for assertion
 	if len(p.tPortClose) > 0 {
-		Expect(port).To(Equal(p.tPortClose[p.tPortCloseCount]))
+		gomega.Expect(port).To(gomega.Equal(p.tPortClose[p.tPortCloseCount]))
 	}
 	if len(p.tProtocolClose) > 0 {
-		Expect(protocol).To(Equal(p.tProtocolClose[p.tPortCloseCount]))
+		gomega.Expect(protocol).To(gomega.Equal(p.tProtocolClose[p.tPortCloseCount]))
 	}
 	if len(p.tIPClose) > 0 {
-		Expect(ip).To(Equal(p.tIPClose[p.tPortCloseCount]))
+		gomega.Expect(ip).To(gomega.Equal(p.tIPClose[p.tPortCloseCount]))
 	}
 	p.tPortCloseCount++
 	return nil
@@ -92,13 +92,13 @@ func newLocalPort(desc string, ip string, port int32, protocol kapi.Protocol) (*
 	return localPort, portError
 }
 
-var _ = Describe("Node Operations", func() {
+var _ = ginkgo.Describe("Node Operations", func() {
 
 	var (
 		app *cli.App
 	)
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
 
@@ -107,9 +107,9 @@ var _ = Describe("Node Operations", func() {
 		app.Flags = config.Flags
 
 	})
-	Context("on add service", func() {
+	ginkgo.Context("on add service", func() {
 
-		It("should open a port for ExternalIP", func() {
+		ginkgo.It("should open a port for ExternalIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{
@@ -136,15 +136,15 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.AddService(service)
-				Expect(fakePort.tPortOpenCount).To(Equal(len(service.Spec.Ports)))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(len(service.Spec.Ports)))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should open a NodePort", func() {
+		ginkgo.It("should open a NodePort", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{
@@ -171,15 +171,15 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.AddService(service)
-				Expect(fakePort.tPortOpenCount).To(Equal(len(service.Spec.Ports)))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(len(service.Spec.Ports)))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should open a NodePort and port for ExternalIP", func() {
+		ginkgo.It("should open a NodePort and port for ExternalIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{
@@ -208,15 +208,15 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.AddService(service)
-				Expect(fakePort.tPortOpenCount).To(Equal(len(service.Spec.Ports) * 2))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(len(service.Spec.Ports) * 2))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should open per protocol NodePorts and ExternalIPs ports", func() {
+		ginkgo.It("should open per protocol NodePorts and ExternalIPs ports", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{
@@ -245,15 +245,15 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.AddService(service)
-				Expect(fakePort.tPortOpenCount).To(Equal(len(service.Spec.Ports) * 2))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(len(service.Spec.Ports) * 2))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should not open a port for ClusterIP", func() {
+		ginkgo.It("should not open a port for ClusterIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{}
@@ -275,18 +275,18 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.AddService(service)
-				Expect(fakePort.tPortOpenCount).To(Equal(0))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(0))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 	})
 
-	Context("on delete service", func() {
+	ginkgo.Context("on delete service", func() {
 
-		It("should not do anything ports for ClusterIP updates", func() {
+		ginkgo.It("should not do anything ports for ClusterIP updates", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				fakePort := &fakePortManager{
@@ -324,16 +324,16 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				pcw.UpdateService(oldService, newService)
-				Expect(fakePort.tPortOpenCount).To(Equal(0))
-				Expect(fakePort.tPortCloseCount).To(Equal(0))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(0))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(0))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should only remove ports when ExternalIP -> no ExternalIP", func() {
+		ginkgo.It("should only remove ports when ExternalIP -> no ExternalIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				oldService := newService("service8", "namespace1", "10.129.0.2",
@@ -379,20 +379,20 @@ var _ = Describe("Node Operations", func() {
 				}
 				pcw := &portClaimWatcher{port: fakePort}
 				pcw.UpdateService(oldService, newService)
-				Expect(fakePort.tPortOpenCount).To(Equal(0))
-				Expect(fakePort.tPortCloseCount).To(Equal(len(oldService.Spec.Ports)))
+				gomega.Expect(fakePort.tPortOpenCount).To(gomega.Equal(0))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(len(oldService.Spec.Ports)))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
 	})
 
-	Context("on delete service", func() {
+	ginkgo.Context("on delete service", func() {
 
-		It("should close ports for ExternalIP", func() {
+		ginkgo.It("should close ports for ExternalIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 				service := newService("service10", "namespace1", "10.129.0.2",
 					[]kapi.ServicePort{
@@ -425,15 +425,15 @@ var _ = Describe("Node Operations", func() {
 				}
 				pcw := &portClaimWatcher{port: fakePort}
 				pcw.DeleteService(service)
-				Expect(fakePort.tPortCloseCount).To(Equal(len(service.Spec.Ports) * len(service.Spec.ExternalIPs)))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(len(service.Spec.Ports) * len(service.Spec.ExternalIPs)))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should close a NodePort and port for ExternalIP", func() {
+		ginkgo.It("should close a NodePort and port for ExternalIP", func() {
 			app.Action = func(ctx *cli.Context) error {
 				service := newService("service11", "namespace1", "10.129.0.2",
 					[]kapi.ServicePort{
@@ -470,15 +470,15 @@ var _ = Describe("Node Operations", func() {
 				pcw := &portClaimWatcher{port: fakePort}
 				pcw.DeleteService(service)
 
-				Expect(fakePort.tPortCloseCount).To(Equal(len(service.Spec.Ports) * 2))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(len(service.Spec.Ports) * 2))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should close per protocol for NodePort and ExternalIP ports", func() {
+		ginkgo.It("should close per protocol for NodePort and ExternalIP ports", func() {
 			app.Action = func(ctx *cli.Context) error {
 				service := newService("service12", "namespace1", "10.129.0.2",
 					[]kapi.ServicePort{
@@ -514,15 +514,15 @@ var _ = Describe("Node Operations", func() {
 				pcw := &portClaimWatcher{port: fakePort}
 				pcw.DeleteService(service)
 
-				Expect(fakePort.tPortCloseCount).To(Equal(len(service.Spec.Ports) * 2))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(len(service.Spec.Ports) * 2))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 
-		It("should close ports for NodePort", func() {
+		ginkgo.It("should close ports for NodePort", func() {
 			app.Action = func(ctx *cli.Context) error {
 
 				service := newService("service13", "namespace1", "10.129.0.2",
@@ -553,19 +553,19 @@ var _ = Describe("Node Operations", func() {
 				pcw := &portClaimWatcher{port: fakePort}
 				pcw.DeleteService(service)
 
-				Expect(fakePort.tPortCloseCount).To(Equal(len(service.Spec.Ports)))
+				gomega.Expect(fakePort.tPortCloseCount).To(gomega.Equal(len(service.Spec.Ports)))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 	})
-	Context("open/close check operations", func() {
-		It("should open and close ports", func() {
+	ginkgo.Context("open/close check operations", func() {
+		ginkgo.It("should open and close ports", func() {
 			app.Action = func(ctx *cli.Context) error {
 				localAddrSet, err := getLocalAddrs()
-				Expect(err).ShouldNot(HaveOccurred())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 				lpm := localPortManager{
 					recorder:          record.NewFakeRecorder(10),
 					activeSocketsLock: sync.Mutex{},
@@ -573,7 +573,7 @@ var _ = Describe("Node Operations", func() {
 					portsMap:          make(map[utilnet.LocalPort]utilnet.Closeable),
 					portOpener:        &fakePortOpener{},
 				}
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				service := newService("service13", "namespace1", "10.129.0.2",
 					[]kapi.ServicePort{
 						{
@@ -592,34 +592,34 @@ var _ = Describe("Node Operations", func() {
 				)
 
 				errors := handleService(service, lpm.open)
-				Expect(len(errors)).To(Equal(0))
-				Expect(len(lpm.portsMap)).To(Equal(4))
+				gomega.Expect(len(errors)).To(gomega.Equal(0))
+				gomega.Expect(len(lpm.portsMap)).To(gomega.Equal(4))
 				lps := make([]*utilnet.LocalPort, 0)
 				lp, err := utilnet.NewLocalPort(getDescription("", service, true), "", "", 32221, utilnet.TCP)
-				Expect(err).ShouldNot(HaveOccurred())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 				lps = append(lps, lp)
 				lp, err = utilnet.NewLocalPort(getDescription("", service, false), "127.0.0.1", "", 8081, utilnet.TCP)
-				Expect(err).ShouldNot(HaveOccurred())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 				lps = append(lps, lp)
 				lp, err = utilnet.NewLocalPort(getDescription("", service, true), "", "", 32222, utilnet.UDP)
-				Expect(err).ShouldNot(HaveOccurred())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 				lps = append(lps, lp)
 				lp, err = utilnet.NewLocalPort(getDescription("", service, false), "127.0.0.1", "", 8082, utilnet.UDP)
-				Expect(err).ShouldNot(HaveOccurred())
+				gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 				lps = append(lps, lp)
 
 				for _, lp = range lps {
 					_, exists := lpm.portsMap[*lp]
-					Expect(exists).To(Equal(true))
+					gomega.Expect(exists).To(gomega.Equal(true))
 				}
 				errors = handleService(service, lpm.close)
-				Expect(len(errors)).To(Equal(0))
-				Expect(len(lpm.portsMap)).To(Equal(0))
+				gomega.Expect(len(errors)).To(gomega.Equal(0))
+				gomega.Expect(len(lpm.portsMap)).To(gomega.Equal(0))
 
 				return nil
 			}
 			err := app.Run([]string{app.Name})
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		})
 	})
 })

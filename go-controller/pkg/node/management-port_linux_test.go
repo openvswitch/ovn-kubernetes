@@ -30,15 +30,15 @@ import (
 
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 )
 
 var tmpDir string
 
-var _ = AfterSuite(func() {
+var _ = ginkgo.AfterSuite(func() {
 	err := os.RemoveAll(tmpDir)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
 
 func createTempFile(name string) (string, error) {
@@ -93,7 +93,7 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 	})
 
 	err := util.SetExec(fexec)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	nodeSubnetCIDRs := make([]*net.IPNet, len(configs))
 	mgtPortAddrs := make([]*netlink.Addr, len(configs))
@@ -106,18 +106,18 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 			Mask: nodeSubnetCIDRs[i].Mask,
 		}
 		mgtPortAddrs[i], err = netlink.ParseAddr(mpCIDR.String())
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if cfg.protocol == iptables.ProtocolIPv4 {
 			err = iptV4.NewChain("nat", "POSTROUTING")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = iptV4.NewChain("nat", "OVN-KUBE-SNAT-MGMTPORT")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			err = iptV6.NewChain("nat", "POSTROUTING")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = iptV6.NewChain("nat", "OVN-KUBE-SNAT-MGMTPORT")
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
 
@@ -130,23 +130,23 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 	})
 
 	_, err = config.InitConfig(ctx, fexec, nil)
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{fakeClient, egressipv1fake.NewSimpleClientset(), &egressfirewallfake.Clientset{}}, &existingNode)
 	waiter := newStartupWaiter()
 
 	err = testNS.Do(func(ns.NetNS) error {
-		defer GinkgoRecover()
+		defer ginkgo.GinkgoRecover()
 
 		_, err = createManagementPort(nodeName, nodeSubnetCIDRs, nodeAnnotator, waiter)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		l, err := netlink.LinkByName(mgtPort)
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		for i, cfg := range configs {
 			// Check whether IP has been added
 			addrs, err := netlink.AddrList(l, cfg.family)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var foundAddr bool
 			for _, a := range addrs {
 				if a.IP.Equal(mgtPortAddrs[i].IP) && bytes.Equal(a.Mask, mgtPortAddrs[i].Mask) {
@@ -154,7 +154,7 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 					break
 				}
 			}
-			Expect(foundAddr).To(BeTrue(), "did not find expected management port IP %s", mgtPortAddrs[i].String())
+			gomega.Expect(foundAddr).To(gomega.BeTrue(), "did not find expected management port IP %s", mgtPortAddrs[i].String())
 
 			// Check whether the routes have been added
 			j := 0
@@ -166,22 +166,22 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 				route := &netlink.Route{Dst: dstIPnet}
 				filterMask := netlink.RT_FILTER_DST
 				routes, err := netlink.RouteListFiltered(cfg.family, route, filterMask)
-				Expect(err).NotTo(HaveOccurred())
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				for _, r := range routes {
 					if r.Gw.Equal(gatewayIP) && r.LinkIndex == l.Attrs().Index {
 						foundRoute = true
 						break
 					}
 				}
-				Expect(foundRoute).To(BeTrue(), "did not find expected route to %s", subnet)
+				gomega.Expect(foundRoute).To(gomega.BeTrue(), "did not find expected route to %s", subnet)
 				foundRoute = false
 				j++
 			}
-			Expect(j).To(Equal(2))
+			gomega.Expect(j).To(gomega.Equal(2))
 
 			// Check whether router IP has been added in the arp entry for mgmt port
 			neighbours, err := netlink.NeighList(l.Attrs().Index, cfg.family)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			var foundNeighbour bool
 			for _, neighbour := range neighbours {
 				if neighbour.IP.Equal(gatewayIP) && (neighbour.HardwareAddr.String() == expectedLRPMAC) {
@@ -189,17 +189,17 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 					break
 				}
 			}
-			Expect(foundNeighbour).To(BeTrue())
+			gomega.Expect(foundNeighbour).To(gomega.BeTrue())
 		}
 
 		return nil
 	})
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = nodeAnnotator.Run()
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = waiter.Wait()
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	for _, cfg := range configs {
 		expectedTables := map[string]util.FakeTable{
@@ -216,25 +216,25 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 		if cfg.protocol == iptables.ProtocolIPv4 {
 			f := iptV4.(*util.FakeIPTables)
 			err = f.MatchState(expectedTables)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		} else {
 			f := iptV6.(*util.FakeIPTables)
 			err = f.MatchState(expectedTables)
-			Expect(err).NotTo(HaveOccurred())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
 
 	updatedNode, err := fakeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
-	Expect(err).NotTo(HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	macFromAnnotation, err := util.ParseNodeManagementPortMACAddress(updatedNode)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(macFromAnnotation.String()).To(Equal(mgtPortMAC))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(macFromAnnotation.String()).To(gomega.Equal(mgtPortMAC))
 
-	Expect(fexec.CalledMatchesExpected()).To(BeTrue(), fexec.ErrorDesc)
+	gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue(), fexec.ErrorDesc)
 }
 
-var _ = Describe("Management Port Operations", func() {
+var _ = ginkgo.Describe("Management Port Operations", func() {
 	var tmpErr error
 	var app *cli.App
 	var testNS ns.NetNS
@@ -242,10 +242,10 @@ var _ = Describe("Management Port Operations", func() {
 
 	tmpDir, tmpErr = ioutil.TempDir("", "clusternodetest_certdir")
 	if tmpErr != nil {
-		GinkgoT().Errorf("failed to create tempdir: %v", tmpErr)
+		ginkgo.GinkgoT().Errorf("failed to create tempdir: %v", tmpErr)
 	}
 
-	BeforeEach(func() {
+	ginkgo.BeforeEach(func() {
 		var err error
 		// Restore global default values before each testcase
 		config.PrepareTestConfig()
@@ -256,19 +256,19 @@ var _ = Describe("Management Port Operations", func() {
 
 		// Set up a fake k8sMgmt interface
 		testNS, err = testutils.NewNS()
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = testNS.Do(func(ns.NetNS) error {
-			defer GinkgoRecover()
+			defer ginkgo.GinkgoRecover()
 			ovntest.AddLink(types.K8sMgmtIntfName)
 			return nil
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		fexec = ovntest.NewFakeExec()
 	})
 
-	AfterEach(func() {
-		Expect(testNS.Close()).To(Succeed())
+	ginkgo.AfterEach(func() {
+		gomega.Expect(testNS.Close()).To(gomega.Succeed())
 	})
 
 	const (
@@ -288,7 +288,7 @@ var _ = Describe("Management Port Operations", func() {
 		v6lrpMAC string = "0a:58:23:5a:40:f1"
 	)
 
-	It("sets up the management port for IPv4 clusters", func() {
+	ginkgo.It("sets up the management port for IPv4 clusters", func() {
 		app.Action = func(ctx *cli.Context) error {
 			testManagementPort(ctx, fexec, testNS,
 				[]managementPortTestConfig{
@@ -311,10 +311,10 @@ var _ = Describe("Management Port Operations", func() {
 			"--cluster-subnets=" + v4clusterCIDR,
 			"--k8s-service-cidr=" + v4serviceCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("sets up the management port for IPv6 clusters", func() {
+	ginkgo.It("sets up the management port for IPv6 clusters", func() {
 		app.Action = func(ctx *cli.Context) error {
 			testManagementPort(ctx, fexec, testNS,
 				[]managementPortTestConfig{
@@ -337,10 +337,10 @@ var _ = Describe("Management Port Operations", func() {
 			"--cluster-subnets=" + v6clusterCIDR,
 			"--k8s-service-cidr=" + v6serviceCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 
-	It("sets up the management port for dual-stack clusters", func() {
+	ginkgo.It("sets up the management port for dual-stack clusters", func() {
 		app.Action = func(ctx *cli.Context) error {
 			testManagementPort(ctx, fexec, testNS,
 				[]managementPortTestConfig{
@@ -374,6 +374,6 @@ var _ = Describe("Management Port Operations", func() {
 			"--cluster-subnets=" + v4clusterCIDR + "," + v6clusterCIDR,
 			"--k8s-service-cidr=" + v4serviceCIDR + "," + v6serviceCIDR,
 		})
-		Expect(err).NotTo(HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	})
 })
