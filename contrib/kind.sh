@@ -457,7 +457,7 @@ create_ovn_kube_manifests() {
   cp gen_admission_keys.sh ${tmp_admission_dir}
 
   pushd ${tmp_admission_dir}
-  sh gen_admission_keys.sh
+  sh -c ./gen_admission_keys.sh
   ca_pem_b64="$(openssl base64 -A <"ca.crt")"
   popd
 
@@ -483,7 +483,7 @@ create_ovn_kube_manifests() {
     --ovn-loglevel-nbctld="${OVN_LOG_LEVEL_NBCTLD}" \
     --egress-ip-enable=true \
     --v4-join-subnet="${JOIN_SUBNET_IPV4}" \
-    --v6-join-subnet="${JOIN_SUBNET_IPV6}"
+    --v6-join-subnet="${JOIN_SUBNET_IPV6}" \
     --admission-ca-pem-b64=${ca_pem_b64}
   popd
 }

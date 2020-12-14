@@ -4,8 +4,6 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-
-	v1 "k8s.io/api/admission/v1"
 )
 
 const (
@@ -14,16 +12,12 @@ const (
 	tlsKeyFile  = `tls.key`
 )
 
-func dummyValidate(req *v1.AdmissionRequest) error {
-	return nil
-}
-
 func main() {
 	certPath := filepath.Join(tlsDir, tlsCertFile)
 	keyPath := filepath.Join(tlsDir, tlsKeyFile)
 
 	mux := http.NewServeMux()
-	mux.Handle("/", admitFuncHandler(dummyValidate))
+	mux.Handle("/egressfirewalls", admitFuncHandler(validateEgressFirewall))
 	server := &http.Server{
 		Addr:    ":8443",
 		Handler: mux,

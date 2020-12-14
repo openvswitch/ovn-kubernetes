@@ -171,6 +171,7 @@ while [ "$1" != "" ]; do
     ;;
   --ipfix-targets)
     OVN_IPFIX_TARGETS=$VALUE
+    ;;
   --admission-ca-pem-b64)
     OVN_WEBHOOK_CA_PEM_B64=$VALUE
     ;;
