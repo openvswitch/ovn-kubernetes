@@ -76,12 +76,6 @@ type namespaceInfo struct {
 	// of all pods in the namespace.
 	addressSet AddressSet
 
-	// map from NetworkPolicy name to namespacePolicy. You must hold the
-	// namespaceInfo's mutex to add/delete/lookup policies, but must hold the
-	// namespacePolicy's mutex (and not necessarily the namespaceInfo's) to work with
-	// the policy itself.
-	networkPolicies map[string]*namespacePolicy
-
 	// defines the namespaces egressFirewallPolicy
 	egressFirewallPolicy *egressFirewall
 
@@ -140,6 +134,12 @@ type Controller struct {
 	// from inside those functions.
 	namespaces      map[string]*namespaceInfo
 	namespacesMutex sync.Mutex
+
+	// Network Policy resources on a per namespace basis
+	// must use getNetworkPolicyLocked() or waitforNetworkPoliciesLocked
+	// to read or edit the networkPolicies Map
+	networkPolicies      map[types.NamespacedName]*networkPolicy
+	networkPoliciesMutex sync.Mutex
 
 	// An address set factory that creates address sets
 	addressSetFactory AddressSetFactory
@@ -257,6 +257,8 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		logicalPortCache:          newPortCache(stopChan),
 		namespaces:                make(map[string]*namespaceInfo),
 		namespacesMutex:           sync.Mutex{},
+		networkPolicies:           make(map[types.NamespacedName]*networkPolicy),
+		networkPoliciesMutex:      sync.Mutex{},
 		addressSetFactory:         addressSetFactory,
 		lspIngressDenyCache:       make(map[string]int),
 		lspEgressDenyCache:        make(map[string]int),

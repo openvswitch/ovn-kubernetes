@@ -111,6 +111,7 @@ func createIPAddressSlice(ips []*net.IPNet) []net.IP {
 // Traffic will be dropped by the default multicast deny ACL.
 func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *namespaceInfo) {
 	if !oc.multicastSupport {
+		klog.V(5).Infof("Multicast is not supported")
 		return
 	}
 
@@ -118,15 +119,37 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 	enabledOld := nsInfo.multicastEnabled
 
 	if enabledOld == enabled {
+		klog.V(5).Infof("Multicast state did not change")
 		return
 	}
 
 	var err error
 	nsInfo.multicastEnabled = enabled
 	if enabled {
-		err = oc.createMulticastAllowPolicy(ns.Name, nsInfo)
+		klog.V(5).Infof("Multicast is enabled for namespace %s and the port group is being updated", ns.Name)
+		err = nsInfo.updateNamespacePortGroup(ns.Name)
+		if err != nil {
+			klog.Errorf("Error trying to update port group for namespace %s:%v", ns.Name, err)
+		}
+
+		err = oc.createMulticastAllowPolicy(ns.Name)
+		if err != nil {
+
+			klog.Errorf("Error trying to create a multicast allow policy for namespace %s:%v", ns.Name, err)
+
+		}
 	} else {
-		err = deleteMulticastAllowPolicy(ns.Name, nsInfo)
+		klog.V(5).Infof("Deleting Multicast port Group for %s", ns)
+		err = deleteMulticastAllowPolicy(ns.Name)
+		if err != nil {
+			klog.Errorf("Error trying to delete a multicast allow policy for namespace %s:%v", ns.Name, err)
+		}
+
+		err = nsInfo.updateNamespacePortGroup(ns.Name)
+		if err != nil {
+			klog.Errorf("Error trying to update port group for namespace %s:%v", ns.Name, err)
+		}
+
 	}
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -139,8 +162,13 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 func (oc *Controller) multicastDeleteNamespace(ns *kapi.Namespace, nsInfo *namespaceInfo) {
 	if nsInfo.multicastEnabled {
 		nsInfo.multicastEnabled = false
-		if err := deleteMulticastAllowPolicy(ns.Name, nsInfo); err != nil {
-			klog.Errorf(err.Error())
+		if err := deleteMulticastAllowPolicy(ns.Name); err != nil {
+			klog.Errorf("Error trying to delete a multicast allow policy for namespace %s:%v", ns.Name, err)
+		}
+		//Add this here to remove nsInfo Dependency from policy.go
+		//Ensures multicast portgroup is removed
+		if err := nsInfo.updateNamespacePortGroup(ns.Name); err != nil {
+			klog.Errorf("Error trying to update port group for namespace %s:%v", ns.Name, err)
 		}
 	}
 }
@@ -149,20 +177,24 @@ func (oc *Controller) multicastDeleteNamespace(ns *kapi.Namespace, nsInfo *names
 // that apply network configuration to all pods in a namespace will use the same port group.
 // This function ensures that the namespace wide port group will only be created once and
 // cleaned up when no object that relies on it exists.
+// currently the only feature that relies on the namespace port group is multicast
 func (nsInfo *namespaceInfo) updateNamespacePortGroup(ns string) error {
 	if nsInfo.multicastEnabled {
 		if nsInfo.portGroupUUID != "" {
 			// Multicast is enabled and the port group exists so there is nothing to do.
+			klog.V(5).Infof("Multicast is enabled but port group already exists %s", nsInfo.portGroupUUID)
 			return nil
 		}
-
 		// The port group should exist but doesn't so create it
+		klog.V(5).Infof("Creating Multicast port Group for %s", ns)
 		portGroupUUID, err := createPortGroup(ns, hashedPortGroup(ns))
 		if err != nil {
 			return fmt.Errorf("failed to create port_group for %s (%v)", ns, err)
 		}
+		klog.V(5).Infof("Created Multicast port Group for %s, it's UUID is %s", ns, portGroupUUID)
 		nsInfo.portGroupUUID = portGroupUUID
 	} else {
+		klog.V(5).Infof("Deleting Multicast port Group for %s", ns)
 		deletePortGroup(hashedPortGroup(ns))
 		nsInfo.portGroupUUID = ""
 	}
@@ -282,11 +314,6 @@ func (oc *Controller) deleteNamespace(ns *kapi.Namespace) {
 	}
 	defer nsInfo.Unlock()
 
-	klog.V(5).Infof("Deleting Namespace's NetworkPolicy entities")
-	for _, np := range nsInfo.networkPolicies {
-		delete(nsInfo.networkPolicies, np.name)
-		oc.destroyNamespacePolicy(np)
-	}
 	oc.deleteGWRoutesForNamespace(nsInfo)
 	oc.multicastDeleteNamespace(ns, nsInfo)
 }
@@ -343,7 +370,6 @@ func (oc *Controller) createNamespaceLocked(ns string) *namespaceInfo {
 	defer oc.namespacesMutex.Unlock()
 
 	nsInfo := &namespaceInfo{
-		networkPolicies:       make(map[string]*namespacePolicy),
 		podExternalRoutes:     make(map[string]map[string]string),
 		multicastEnabled:      false,
 		routingExternalPodGWs: make(map[string][]net.IP),
