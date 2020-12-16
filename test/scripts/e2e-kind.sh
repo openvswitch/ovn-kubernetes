@@ -35,9 +35,6 @@ EndpointSlices
 # NOT IMPLEMENTED; SEE DISCUSSION IN https://github.com/ovn-org/ovn-kubernetes/pull/1225
 named port.+\[Feature:NetworkPolicy\]
 
-# TO BE FIXED BY https://github.com/kubernetes/kubernetes/pull/93119
-GCE
-
 # ???
 \[Feature:NoSNAT\]
 Services.+(ESIPP|cleanup finalizer)
