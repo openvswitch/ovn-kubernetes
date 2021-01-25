@@ -524,38 +524,36 @@ func (oc *Controller) localPodDelDefaultDeny(
 	}
 }
 
-func (oc *Controller) handleLocalPodSelectorAddFunc(
-	policy *knet.NetworkPolicy, np *namespacePolicy,
-	obj interface{}) {
+func (oc *Controller) handleLocalPodSelectorAddFunc(policy *knet.NetworkPolicy, np *namespacePolicy,
+	obj interface{}) error {
 	pod := obj.(*kapi.Pod)
 
 	if pod.Spec.NodeName == "" {
-		return
+		return nil
 	}
 
 	// Get the logical port info
 	logicalPort := podLogicalPortName(pod)
 	portInfo, err := oc.logicalPortCache.get(logicalPort)
 	if err != nil {
-		klog.Errorf(err.Error())
-		return
+		return err
 	}
 
 	np.Lock()
 	defer np.Unlock()
 
 	if np.deleted {
-		return
+		return nil
 	}
 
 	if _, ok := np.localPods[logicalPort]; ok {
-		return
+		return nil
 	}
 
 	oc.localPodAddDefaultDeny(policy, portInfo)
 
 	if np.portGroupUUID == "" {
-		return
+		return nil
 	}
 
 	_, stderr, err := util.RunOVNNbctl("--if-exists", "remove",
@@ -564,9 +562,11 @@ func (oc *Controller) handleLocalPodSelectorAddFunc(
 	if err != nil {
 		klog.Errorf("Failed to add logicalPort %s to portGroup %s "+
 			"stderr: %q (%v)", logicalPort, np.portGroupUUID, stderr, err)
+		return err
 	}
 
 	np.localPods[logicalPort] = portInfo
+	return nil
 }
 
 func (oc *Controller) handleLocalPodSelectorDelFunc(
@@ -616,8 +616,7 @@ func (oc *Controller) handleLocalPodSelectorDelFunc(
 	}
 }
 
-func (oc *Controller) handleLocalPodSelector(
-	policy *knet.NetworkPolicy, np *namespacePolicy) {
+func (oc *Controller) handleLocalPodSelector(policy *knet.NetworkPolicy, np *namespacePolicy) {
 
 	// NetworkPolicy is validated by the apiserver; this can't fail.
 	sel, _ := metav1.LabelSelectorAsSelector(&policy.Spec.PodSelector)
@@ -625,13 +624,15 @@ func (oc *Controller) handleLocalPodSelector(
 	h := oc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				oc.handleLocalPodSelectorAddFunc(policy, np, obj)
+				_ = oc.handleLocalPodSelectorAddFunc(policy, np, obj)
 			},
 			DeleteFunc: func(obj interface{}) {
 				oc.handleLocalPodSelectorDelFunc(policy, np, obj)
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oc.handleLocalPodSelectorAddFunc(policy, np, newObj)
+				if err := oc.handleLocalPodSelectorAddFunc(policy, np, newObj); err != nil {
+					klog.Error(err.Error())
+				}
 			},
 		}, nil)
 
@@ -849,11 +850,12 @@ func (oc *Controller) destroyNamespacePolicy(np *namespacePolicy) {
 // handlePeerPodSelectorAddUpdate adds the IP address of a pod that has been
 // selected as a peer by a NetworkPolicy's ingress/egress section to that
 // ingress/egress address set
-func (oc *Controller) handlePeerPodSelectorAddUpdate(gp *gressPolicy, obj interface{}) {
+func (oc *Controller) handlePeerPodSelectorAddUpdate(gp *gressPolicy, obj interface{}) error {
 	pod := obj.(*kapi.Pod)
 	if err := gp.addPeerPod(pod); err != nil {
-		klog.Errorf(err.Error())
+		return err
 	}
+	return nil
 }
 
 // handlePeerPodSelectorDelete removes the IP address of a pod that no longer
@@ -931,13 +933,15 @@ func (oc *Controller) handlePeerPodSelector(
 	h := oc.watchFactory.AddFilteredPodHandler(policy.Namespace, sel,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				oc.handlePeerPodSelectorAddUpdate(gp, obj)
+				_ = oc.handlePeerPodSelectorAddUpdate(gp, obj)
 			},
 			DeleteFunc: func(obj interface{}) {
 				oc.handlePeerPodSelectorDelete(gp, obj)
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
-				oc.handlePeerPodSelectorAddUpdate(gp, newObj)
+				if err := oc.handlePeerPodSelectorAddUpdate(gp, newObj); err != nil {
+					klog.Error(err.Error())
+				}
 			},
 		}, nil)
 	np.podHandlerList = append(np.podHandlerList, h)
@@ -970,13 +974,15 @@ func (oc *Controller) handlePeerNamespaceAndPodSelector(
 				podHandler := oc.watchFactory.AddFilteredPodHandler(namespace.Name, podSel,
 					cache.ResourceEventHandlerFuncs{
 						AddFunc: func(obj interface{}) {
-							oc.handlePeerPodSelectorAddUpdate(gp, obj)
+							_ = oc.handlePeerPodSelectorAddUpdate(gp, obj)
 						},
 						DeleteFunc: func(obj interface{}) {
 							oc.handlePeerPodSelectorDelete(gp, obj)
 						},
 						UpdateFunc: func(oldObj, newObj interface{}) {
-							oc.handlePeerPodSelectorAddUpdate(gp, newObj)
+							if err := oc.handlePeerPodSelectorAddUpdate(gp, obj); err != nil {
+								klog.Error(err.Error())
+							}
 						},
 					}, nil)
 				np.Lock()

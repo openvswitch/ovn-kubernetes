@@ -18,7 +18,7 @@ import (
 	utilnet "k8s.io/utils/net"
 )
 
-// Builds the logical switch port name for a given pod.
+// podLogicalPortName builds the logical switch port name for a given pod.
 func podLogicalPortName(pod *kapi.Pod) string {
 	return pod.Namespace + "_" + pod.Name
 }
