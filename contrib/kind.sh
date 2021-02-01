@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+
 run_kubectl() {
   local retries=0
   local attempts=10
@@ -149,8 +150,15 @@ print_params()
 parse_args $*
 
 # ensure j2 renderer installed
-pip install wheel
-pip freeze | grep j2cli || pip install j2cli[yaml] --user
+
+if python -m pip --version ; then
+  pip install wheel
+  pip freeze | grep j2cli || pip install j2cli[yaml] --user
+else
+  echo "need python + pip installed to enable j2"
+  exit 1
+fi
+
 export PATH=~/.local/bin:$PATH
 
 # Set default values
