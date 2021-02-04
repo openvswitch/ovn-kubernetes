@@ -42,6 +42,7 @@ usage()
     echo "-kt | --keep-taint                Do not remove taint components."
     echo "                                  DEFAULT: Remove taint components."
     echo "-ha | --ha-enabled                Enable high availability. DEFAULT: HA Disabled."
+    echo "-m  | --monitor                   Deploy the prometheus monitoring stack. DEFAULT: Disabled."
     echo "-ho | --hybrid-enabled            Enable hybrid overlay. DEFAULT: Disabled."
     echo "-ds | --disable-snat-multiple-gws Disable SNAT for multiple gws. DEFAULT: Disabled."
     echo "-el | --ovn-empty-lb-events       Enable empty-lb-events generation for LB without backends. DEFAULT: Disabled"
@@ -76,6 +77,8 @@ parse_args()
             -ii | --install-ingress )           KIND_INSTALL_INGRESS=true
                                                 ;;
             -ha | --ha-enabled )                OVN_HA=true
+                                                ;;
+            -m  | --monitor )                   OVN_MONITOR=true
                                                 ;;
             -me | --multicast-enabled)          OVN_MULTICAST_ENABLE=true
                                                 ;;
@@ -131,6 +134,7 @@ print_params()
      echo ""
      echo "KIND_INSTALL_INGRESS = $KIND_INSTALL_INGRESS"
      echo "OVN_HA = $OVN_HA"
+     echo "OVN_MONITOR = $OVN_MONITOR"
      echo "KIND_CONFIG_FILE = $KIND_CONFIG"
      echo "KIND_REMOVE_TAINT = $KIND_REMOVE_TAINT"
      echo "KIND_IPV4_SUPPORT = $KIND_IPV4_SUPPORT"
@@ -159,6 +163,7 @@ K8S_VERSION=${K8S_VERSION:-v1.20.0}
 OVN_GATEWAY_MODE=${OVN_GATEWAY_MODE:-local}
 KIND_INSTALL_INGRESS=${KIND_INSTALL_INGRESS:-false}
 OVN_HA=${OVN_HA:-false}
+OVN_MONITOR=${OVN_MONITOR:-false}
 KIND_CONFIG=${KIND_CONFIG:-./kind.yaml.j2}
 KIND_REMOVE_TAINT=${KIND_REMOVE_TAINT:-true}
 KIND_IPV4_SUPPORT=${KIND_IPV4_SUPPORT:-true}
@@ -417,6 +422,25 @@ if ! kubectl wait -n kube-system --for=condition=ready pods --all --timeout=300s
   echo "some pods in the system are not running"
   kubectl get pods -A -o wide || true
   exit 1
+fi
+if [ "$OVN_MONITOR" == true ]; then
+  # Begin by creating the monitoring namespace and prometheus CRDs
+  for file in `curl  -L https://api.github.com/repos/prometheus-operator/kube-prometheus/contents/manifests/setup | jq '.[].download_url'`; do
+    run_kubectl apply -f $file
+  done
+  # Then get all kube-state-metrics, node-exporter and prometheus templates, and deploy them
+  for file in `curl  -L https://api.github.com/repos/prometheus-operator/kube-prometheus/contents/manifests | jq '.[] | select(.name|test("kube.|node.|prometheus-.")) | select(.name|test("prometheus-adapter.")|not)| .download_url'`; do 
+    run_kubectl apply -f $file
+  done
+  if ! kubectl wait -n monitoring --for=condition=ready pods --all --timeout=300s ; then
+    echo "some pods in the monitoring namespace are not running"
+    kubectl get pods -n monitoring -o wide || true
+    exit 1
+  fi
+  pushd ../dist/yaml
+  run_kubectl apply -f ovnkube-monitor.yaml
+  popd
+  echo "Your Prometheus instance can now be accessed on localhost:9090 by executing: kubectl -n monitoring port-forward svc/prometheus-k8s 9090"
 fi
 
 echo "Pods are all up, allowing things settle for 30 seconds..."
