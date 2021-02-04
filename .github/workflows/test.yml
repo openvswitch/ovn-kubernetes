@@ -138,7 +138,7 @@ jobs:
         # - {"ipfamily": {"ip": ipv4}, "ha": {"enabled": "false"}, "gateway-mode": shared, "target": {"shard": shard-n-other}}
         exclude:
          # Not currently supported but needs to be.
-         - {"ipfamily": {"ip": dualstack}, "target": {"shard": control-plane}}
+         # - {"ipfamily": {"ip": dualstack}, "target": {"shard": control-plane}}
          - {"ipfamily": {"ip": ipv6}, "target": {"shard": control-plane}}
          # Limit matrix combinations for CI. DISABLED items added to exclude list:
          #   DISABLED  v4  ha     local

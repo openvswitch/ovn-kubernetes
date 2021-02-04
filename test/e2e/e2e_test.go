@@ -1633,6 +1633,191 @@ var _ = ginkgo.Describe("e2e ingress gateway traffic validation", func() {
 	})
 })
 
+// Validate pods can reach a network running in a container's ipv6 loopback address via
+// an external gateway running on eth0 of the container without any tunnel encap.
+// Next, the test updates the namespace annotation to point to a second container
+// (emulating a second gateway) and validates ipv6 external gateway functionality
+var _ = ginkgo.Describe("e2e non-vxlan ipv6 external gateway and update validation", func() {
+	const (
+		svcname             string = "multiple-novxlan-ipv6-externalgw"
+		exGWRemoteIpAlt1    string = "fd01:9:244:3::5"
+		exGWRemoteIpAlt2    string = "fd02:8:244:4::5"
+		ovnContainer        string = "ovnkube-node"
+		gwContainerNameAlt1 string = "gw-novxlan-ipv6-test-container-alt1"
+		gwContainerNameAlt2 string = "gw-novxlan-ipv6-test-container-alt2"
+	)
+
+	f := framework.NewDefaultFramework(svcname)
+
+	type nodeInfo struct {
+		name   string
+	}
+
+	var (
+		workerNodeInfo nodeInfo
+	)
+
+	ginkgo.BeforeEach(func() {
+
+		// retrieve worker node names
+		nodes, err := e2enode.GetBoundedReadySchedulableNodes(f.ClientSet, 3)
+		framework.ExpectNoError(err)
+		if len(nodes.Items) < 3 {
+			framework.Failf(
+				"Test requires >= 3 Ready nodes, but there are only %v nodes",
+				len(nodes.Items))
+		}
+
+		workerNodeInfo = nodeInfo{
+			name:   nodes.Items[1].Name,
+		}
+	})
+
+	ginkgo.AfterEach(func() {
+		// tear down the containers simulating the gateways
+		if cid, _ := runCommand("docker", "ps", "-qaf", fmt.Sprintf("name=%s", gwContainerNameAlt1)); cid != "" {
+			if _, err := runCommand("docker", "rm", "-f", gwContainerNameAlt1); err != nil {
+				framework.Logf("failed to delete the gateway test container %s %v", gwContainerNameAlt1, err)
+			}
+		}
+		if cid, _ := runCommand("docker", "ps", "-qaf", fmt.Sprintf("name=%s", gwContainerNameAlt2)); cid != "" {
+			if _, err := runCommand("docker", "rm", "-f", gwContainerNameAlt2); err != nil {
+				framework.Logf("failed to delete the gateway test container %s %v", gwContainerNameAlt2, err)
+			}
+		}
+	})
+
+	ginkgo.It("Should validate IPv6 connectivity (without vxlan) before and after updating the namespace annotation to a new external gateway", func() {
+
+		var (
+			pingSrc string
+			validIP net.IP
+			exGWRemoteCidrAlt1 = fmt.Sprintf("%s/64", exGWRemoteIpAlt1)
+			exGWRemoteCidrAlt2 = fmt.Sprintf("%s/64", exGWRemoteIpAlt2)
+			srcPingPodName = "e2e-exgw-novxlan-src-ping-pod"
+			command = []string{"bash", "-c", "sleep 20000"}
+			frameworkNsFlag = fmt.Sprintf("--namespace=%s", f.Namespace.Name)
+			testContainer = fmt.Sprintf("%s-container", srcPingPodName)
+			testContainerFlag = fmt.Sprintf("--container=%s", testContainer)
+			ciNetworkFlag = fmt.Sprintf("{{ .NetworkSettings.Networks.%s.GlobalIPv6Address }}", ciNetworkName)
+		)
+
+		// start the container that will act as a v6 external gateway
+		_, err := runCommand("docker", "run", "-itd", "--privileged", "--network", ciNetworkName, "--name", gwContainerNameAlt1, "centos")
+		if err != nil {
+			framework.Failf("failed to start external gateway test container %s: %v", gwContainerNameAlt1, err)
+		}
+		// retrieve the container v6 ip of the external gateway container
+		exGWIpAlt1, err := runCommand("docker", "inspect", "-f", ciNetworkFlag, gwContainerNameAlt1)
+		if err != nil {
+			framework.Failf("failed to start external gateway test container: %v", err)
+		}
+		// trim newline from the inspect output
+		exGWIpAlt1 = strings.TrimSuffix(exGWIpAlt1, "\n")
+		if ip := net.ParseIP(exGWIpAlt1); ip == nil {
+			framework.Failf("Unable to retrieve a valid v6 address from container %s with inspect output of %s", gwContainerNameAlt1, exGWIpAlt1)
+		}
+		// annotate the test namespace with the IPv6 address from the mock gateway eth0 from the container
+		annotateArgs := []string{
+			"annotate",
+			"namespace",
+			f.Namespace.Name,
+			fmt.Sprintf("k8s.ovn.org/routing-external-gws=%s", exGWIpAlt1),
+		}
+		framework.Logf("Annotating the external gateway test namespace to a container gw: %s ", exGWIpAlt1)
+		framework.RunKubectlOrDie(annotateArgs...)
+		// retrieve the IPv6 address from the worker node
+		nodeIP, err := runCommand("docker", "inspect", "-f", ciNetworkFlag, workerNodeInfo.name)
+		if err != nil {
+			framework.Failf("failed to get the node IPv6 address from node %s %v", workerNodeInfo.name, err)
+		}
+		nodeIP = strings.TrimSuffix(nodeIP, "\n")
+		if ip := net.ParseIP(nodeIP); ip == nil {
+			framework.Failf("Unable to retrieve a valid IPv6 address from container %s with inspect output of %s", workerNodeInfo.name, nodeIP)
+		}
+		framework.Logf("the pod side node is %s and the source node ip is %s", workerNodeInfo.name, nodeIP)
+		podCIDR, err := getNodePodCIDR(workerNodeInfo.name)
+		if err != nil {
+			framework.Failf("Error retrieving the pod cidr from %s %v", workerNodeInfo.name, err)
+		}
+		framework.Logf("the pod cidr for node %s is %s", workerNodeInfo.name, podCIDR)
+		// add an IPv6 loopback interface used to validate all traffic is getting drained through the gateway
+		_, err = runCommand("docker", "exec", gwContainerNameAlt1, "ip", "-6", "address", "add", exGWRemoteCidrAlt1, "dev", "lo")
+		if err != nil {
+			framework.Failf("failed to add the IPv6 loopback ip to dev lo on the test container: %v", err)
+		}
+		// Create the pod that will be used as the source for the connectivity test
+		createGenericPod(f, srcPingPodName, workerNodeInfo.name, f.Namespace.Name, command)
+		// wait for pod setup to return a valid address
+		err = wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			pingSrc = getPodAddress(srcPingPodName, f.Namespace.Name)
+			validIP = net.ParseIP(pingSrc)
+			if validIP == nil {
+				return false, nil
+			}
+			return true, nil
+		})
+		// Fail the test if no address is ever retrieved
+		if err != nil {
+			framework.Failf("Error trying to get the pod IP address")
+		}
+		// add an ipv6 host route on the first mock gateway for return traffic to the pod
+		_, err = runCommand("docker", "exec", gwContainerNameAlt1, "ip", "-6", "route", "add", pingSrc, "via", nodeIP)
+		if err != nil {
+			framework.Failf("failed to add the pod host route on the test container: %v", err)
+		}
+		time.Sleep(time.Second * 5)
+		// Verify the IPv6 gateway and remote IPv6 address is reachable from the initial pod
+		ginkgo.By(fmt.Sprintf("Verifying IPv6 connectivity (without vxlan) to the updated annotation and initial IPv6 external gateway %s and remote address %s", exGWIpAlt1, exGWRemoteIpAlt1))
+		_, err = framework.RunKubectl("exec", srcPingPodName, frameworkNsFlag, testContainerFlag, "--", "ping6", "-c", "20", exGWRemoteIpAlt1)
+		if err != nil {
+			framework.Failf("Failed to ping the first IPv6 gateway network %s from container %s on node %s: %v", exGWRemoteIpAlt1, ovnContainer, workerNodeInfo.name, err)
+		}
+		// start the container that will act as a new external gateway that the tests will be updated to use
+		_, err = runCommand("docker", "run", "-itd", "--privileged", "--network", ciNetworkName, "--name", gwContainerNameAlt2, "centos")
+		if err != nil {
+			framework.Failf("failed to start external gateway test container %s: %v", gwContainerNameAlt2, err)
+		}
+		// retrieve the container v6 address of the external gateway container
+		exGWIpAlt2, err := runCommand("docker", "inspect", "-f", ciNetworkFlag, gwContainerNameAlt2)
+		if err != nil {
+			framework.Failf("failed to start external gateway test container: %v", err)
+		}
+		// trim newline from the inspect output
+		exGWIpAlt2 = strings.TrimSuffix(exGWIpAlt2, "\n")
+		if ip := net.ParseIP(nodeIP); ip == nil {
+			framework.Failf("Unable to retrieve a valid address from container %s with inspect output of %s", gwContainerNameAlt2, nodeIP)
+		}
+		// override the annotation in the test namespace with the new IPv6 gateway
+		annotateArgs = []string{
+			"annotate",
+			"namespace",
+			f.Namespace.Name,
+			fmt.Sprintf("k8s.ovn.org/routing-external-gws=%s", exGWIpAlt2),
+			"--overwrite",
+		}
+		framework.Logf("Annotating the external gateway test namespace to a new container remote IPv6:%s gw:%s ", exGWIpAlt2, exGWRemoteIpAlt2)
+		framework.RunKubectlOrDie(annotateArgs...)
+
+		// add an ipv6 loopback interface used to validate all traffic is getting drained through the gateway
+		_, err = runCommand("docker", "exec", gwContainerNameAlt2, "ip", "-6", "address", "add", exGWRemoteCidrAlt2, "dev", "lo")
+		if err != nil {
+			framework.Failf("failed to add the loopback ip to dev lo on the test container: %v", err)
+		}
+		// add an ipv6 host route on the second mock gateway for return traffic to the pod
+		_, err = runCommand("docker", "exec", gwContainerNameAlt2, "ip", "-6", "route", "add", pingSrc, "via", nodeIP)
+		if err != nil {
+			framework.Failf("failed to add the pod route on the test container: %v", err)
+		}
+		// Verify the updated IPv6 gateway and remote IPv6 address is reachable from the initial pod
+		ginkgo.By(fmt.Sprintf("Verifying IPv6 connectivity (without vxlan) to the updated annotation and new external gateway %s and remote IP %s", exGWRemoteIpAlt2, exGWIpAlt2))
+		_, err = framework.RunKubectl("exec", srcPingPodName, frameworkNsFlag, testContainerFlag, "--", "ping6", "-c", "20", exGWRemoteIpAlt2)
+		if err != nil {
+			framework.Failf("Failed to ping the second IPv6 gateway network %s from container %s on node %s: %v", exGWRemoteIpAlt2, ovnContainer, workerNodeInfo.name, err)
+		}
+	})
+})
+
 func getNodePodCIDR(nodeName string) (string, error) {
 	// retrieve the pod cidr for the worker node
 	jsonFlag := "jsonpath='{.metadata.annotations.k8s\\.ovn\\.org/node-subnets}'"
