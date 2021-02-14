@@ -325,7 +325,8 @@ type HybridOverlayConfig struct {
 
 // OvnKubeNodeConfig holds ovnkube-node configurations
 type OvnKubeNodeConfig struct {
-	Mode string `gcfg:"mode"`
+	Mode           string `gcfg:"mode"`
+	MgmtPortNetdev string `gcfg:"mgmt-port-netdev"`
 }
 
 // OvnDBScheme describes the OVN database connection transport method
@@ -977,6 +978,14 @@ var OvnKubeNodeFlags = []cli.Flag{
 		Usage:       "ovnkube-node operating mode full(default), smart-nic, smart-nic-host",
 		Value:       OvnKubeNode.Mode,
 		Destination: &cliConfig.OvnKubeNode.Mode,
+	},
+	&cli.StringFlag{
+		Name: "ovnkube-node-mgmt-port-netdev",
+		Usage: "valid only when ovnkube-node-mode is either smart-nic or smart-nic-host. " +
+			"when provided, use this netdev as management port. it will be renamed to ovn-k8s-mp0 " +
+			"and used to allow host network services and pods to access k8s pod and service networks. ",
+		Value:       OvnKubeNode.MgmtPortNetdev,
+		Destination: &cliConfig.OvnKubeNode.MgmtPortNetdev,
 	},
 }
 
@@ -1808,6 +1817,12 @@ func buildOvnKubeNodeConfig(ctx *cli.Context, cli, file *config) error {
 	// ovnkube-node-mode smart-nic/smart-nic-host does not support hybrid overlay
 	if OvnKubeNode.Mode != types.NodeModeFull && HybridOverlay.Enabled {
 		return fmt.Errorf("hybrid overlay is not supported with ovnkube-node mode %s", OvnKubeNode.Mode)
+	}
+	// when Smart-NIC are used, management port is backed by a VF. get management port VF information
+	if OvnKubeNode.Mode == types.NodeModeSmartNIC || OvnKubeNode.Mode == types.NodeModeSmartNICHost {
+		if OvnKubeNode.MgmtPortNetdev == "" {
+			return fmt.Errorf("ovnkube-node-mgmt-port-netdev must be provided")
+		}
 	}
 	return nil
 }
