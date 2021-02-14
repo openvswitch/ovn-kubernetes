@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
@@ -196,7 +197,18 @@ func HashForOVN(s string) string {
 	}
 	hashString := strconv.FormatUint(h.Sum64(), 10)
 	return fmt.Sprintf("a%s", hashString)
+}
 
+// RunPeriodicallyUntilStop calls callable every period time until stopChan is posted an object
+func RunPeriodicallyUntilStop(callable func(), period time.Duration, stopChan chan struct{}) {
+	for {
+		select {
+		case <-time.After(period):
+			callable()
+		case <-stopChan:
+			return
+		}
+	}
 }
 
 // UpdateIPsSlice will search for values of oldIPs in the slice "s" and update it with newIPs values of same IP family
