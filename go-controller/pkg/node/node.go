@@ -253,6 +253,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	var mgmtPortConfig *managementPortConfig
 	var cniServer *cni.Server
 	var isOvnUpEnabled bool
+	var mgmtPort ManagementPort
 
 	klog.Infof("OVN Kube Node initialization, Mode: %s", config.OvnKubeNode.Mode)
 
@@ -296,6 +297,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	if err != nil {
 		return fmt.Errorf("timed out waiting for node's: %q logical switch: %v", n.name, err)
 	}
+	klog.Infof("Node %s ready for ovn initialization with subnet %s", n.name, util.JoinIPNets(subnets, ","))
 
 	// Create CNI Server
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNIC {
@@ -313,18 +315,26 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		}
 	}
 
-	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost {
-		klog.Infof("Node %s ready for ovn initialization with subnet %s", n.name, util.JoinIPNets(subnets, ","))
+	// Setup Management port and gateway
+	mgmtPort = NewManagementPort(n.name, subnets)
 
+	if config.OvnKubeNode.Mode == types.NodeModeSmartNICHost {
+		// Initialize management port resources on the node.
+		// Updating node annotation and waiting for management port on smartNIC host is not needed,
+		// so we pass nil for both.
+		mgmtPortConfig, err = mgmtPort.Create(nil, nil)
+		if err != nil {
+			return err
+		}
+		klog.Infof("Management port ready.")
+	} else {
 		if _, err = isOVNControllerReady(n.name); err != nil {
 			return err
 		}
-
 		nodeAnnotator := kube.NewNodeAnnotator(n.Kube, node)
 		waiter := newStartupWaiter()
-
 		// Initialize management port resources on the node
-		mgmtPortConfig, err = createManagementPort(n.name, subnets, nodeAnnotator, waiter)
+		mgmtPortConfig, err = mgmtPort.Create(nodeAnnotator, waiter)
 		if err != nil {
 			return err
 		}
@@ -447,17 +457,24 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		klog.Errorf("Reset of initial klog \"loglevel\" failed, err: %v", err)
 	}
 
+	if config.OvnKubeNode.Mode != types.NodeModeSmartNIC {
+		// start management port health check
+		go util.RunPeriodicallyUntilStop(
+			func() {
+				mgmtPort.CheckManagementPortHealth(mgmtPortConfig)
+			},
+			30*time.Second,
+			n.stopChan)
+	}
+
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost {
 		// start health check to ensure there are no stale OVS internal ports
-		go checkForStaleOVSInterfaces(n.stopChan)
-
-		// start management port health check
-		go checkManagementPortHealth(mgmtPortConfig, n.stopChan)
-
+		go util.RunPeriodicallyUntilStop(checkForStaleOVSInterfaces, 60*time.Second, n.stopChan)
 		n.WatchEndpoints()
 	}
 
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNIC {
+		// conditionally write cni config file
 		confFile := filepath.Join(config.CNI.ConfDir, config.CNIConfFileName)
 		_, err = os.Stat(confFile)
 		if os.IsNotExist(err) {
