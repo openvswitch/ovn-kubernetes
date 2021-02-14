@@ -138,7 +138,8 @@ func testManagementPort(ctx *cli.Context, fexec *ovntest.FakeExec, testNS ns.Net
 	err = testNS.Do(func(ns.NetNS) error {
 		defer GinkgoRecover()
 
-		_, err = createManagementPort(nodeName, nodeSubnetCIDRs, nodeAnnotator, waiter)
+		mgmtPort := NewManagementPort(nodeName, nodeSubnetCIDRs)
+		_, err = mgmtPort.Create(nodeAnnotator, waiter)
 		Expect(err).NotTo(HaveOccurred())
 		l, err := netlink.LinkByName(mgtPort)
 		Expect(err).NotTo(HaveOccurred())

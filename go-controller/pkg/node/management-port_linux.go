@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
@@ -299,19 +298,12 @@ func DelMgtPortIptRules() {
 // 1. route entries to cluster CIDR and service CIDR through management port
 // 2. ARP entry for the node subnet's gateway ip
 // 3. IPtables chain and rule for SNATing packets entering the logical topology
-func checkManagementPortHealth(cfg *managementPortConfig, stopChan chan struct{}) {
-	for {
-		select {
-		case <-time.After(30 * time.Second):
-			warnings, err := setupManagementPortConfig(cfg)
-			for _, warning := range warnings {
-				klog.Warningf(warning)
-			}
-			if err != nil {
-				klog.Errorf(err.Error())
-			}
-		case <-stopChan:
-			return
-		}
+func checkManagementPortHealth(cfg *managementPortConfig) {
+	warnings, err := setupManagementPortConfig(cfg)
+	for _, warning := range warnings {
+		klog.Warningf(warning)
+	}
+	if err != nil {
+		klog.Errorf(err.Error())
 	}
 }

@@ -5,16 +5,25 @@ import (
 	"net"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
-
-	"k8s.io/klog/v2"
 )
 
-func createManagementPort(nodeNameOriginal string, hostSubnets []*net.IPNet, nodeAnnotator kube.Annotator,
-	waiter *startupWaiter) (*managementPortConfig, error) {
+// ManagementPort is an interface that provides creation and healthcheck for ovn-k8s management port
+type ManagementPort interface {
+	// Create Management port, use annotator to update node annotation with management port details
+	// and waiter to set up condition to wait on for management port creation
+	Create(nodeAnnotator kube.Annotator, waiter *startupWaiter) (*managementPortConfig, error)
+	// when invoked, checks for management port health and reports any warnings/errors to log
+	CheckManagementPortHealth(cfg *managementPortConfig)
+}
+
+// NewManagementPort creates a new ManagementPort
+func NewManagementPort(nodeName string, hostSubnets []*net.IPNet) ManagementPort {
 	// Kubernetes emits events when pods are created. The event will contain
 	// only lowercase letters of the hostname even though the kubelet is
 	// started with a hostname that contains lowercase and uppercase letters.
@@ -23,16 +32,42 @@ func createManagementPort(nodeNameOriginal string, hostSubnets []*net.IPNet, nod
 	// will try to fetch and what kubernetes provides, thus failing to
 	// create the port on the logical switch.
 	// Until the above is changed, switch to a lowercase hostname
-	nodeName := strings.ToLower(nodeNameOriginal)
+	nodeName = strings.ToLower(nodeName)
 
+	switch config.OvnKubeNode.Mode {
+	default:
+		return &managementPort{
+			nodeName:    nodeName,
+			hostSubnets: hostSubnets,
+		}
+	case types.NodeModeSmartNIC:
+		return &managementPortSmartNIC{
+			nodeName:    nodeName,
+			hostSubnets: hostSubnets,
+			vfRepName:   config.OvnKubeNode.MgmtPortNetdev,
+		}
+	case types.NodeModeSmartNICHost:
+		return &managementPortSmartNICHost{
+			hostSubnets: hostSubnets,
+			netdevName:  config.OvnKubeNode.MgmtPortNetdev,
+		}
+	}
+}
+
+type managementPort struct {
+	nodeName    string
+	hostSubnets []*net.IPNet
+}
+
+func (mp *managementPort) Create(nodeAnnotator kube.Annotator, waiter *startupWaiter) (*managementPortConfig, error) {
 	// Create a OVS internal interface.
-	legacyMgmtIntfName := util.GetLegacyK8sMgmtIntfName(nodeName)
+	legacyMgmtIntfName := util.GetLegacyK8sMgmtIntfName(mp.nodeName)
 	stdout, stderr, err := util.RunOVSVsctl(
 		"--", "--if-exists", "del-port", "br-int", legacyMgmtIntfName,
 		"--", "--may-exist", "add-port", "br-int", types.K8sMgmtIntfName,
 		"--", "set", "interface", types.K8sMgmtIntfName,
 		"type=internal", "mtu_request="+fmt.Sprintf("%d", config.Default.MTU),
-		"external-ids:iface-id="+types.K8sPrefix+nodeName)
+		"external-ids:iface-id="+types.K8sPrefix+mp.nodeName)
 	if err != nil {
 		klog.Errorf("Failed to add port to br-int, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 		return nil, err
@@ -51,7 +86,7 @@ func createManagementPort(nodeNameOriginal string, hostSubnets []*net.IPNet, nod
 		return nil, err
 	}
 
-	cfg, err := createPlatformManagementPort(types.K8sMgmtIntfName, hostSubnets)
+	cfg, err := createPlatformManagementPort(types.K8sMgmtIntfName, mp.hostSubnets)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +99,10 @@ func createManagementPort(nodeNameOriginal string, hostSubnets []*net.IPNet, nod
 	return cfg, nil
 }
 
-// managementPortReady will check to see if OpenFlow rules for management port has been created
+func (mpc *managementPort) CheckManagementPortHealth(cfg *managementPortConfig) {
+	checkManagementPortHealth(cfg)
+}
+
 func managementPortReady() (bool, error) {
 	// Get the OVS interface name for the Management Port
 	ofport, _, err := util.RunOVSVsctl("--if-exists", "get", "interface", types.K8sMgmtIntfName, "ofport")
