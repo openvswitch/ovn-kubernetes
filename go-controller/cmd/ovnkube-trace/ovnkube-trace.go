@@ -133,7 +133,7 @@ func getPodMAC(client *corev1client.CoreV1Client, pod *kapi.Pod) (podMAC string,
 			podMAC = nodeMAC.String()
 		}
 	} else {
-		podAnnotation, err := util.UnmarshalPodAnnotation(pod.ObjectMeta.Annotations)
+		podAnnotation, err := util.UnmarshalPodAnnotation(pod.ObjectMeta.Annotations, types.DefaultNetworkName)
 		if err != nil {
 			return "", err
 		}

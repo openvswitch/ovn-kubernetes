@@ -10,6 +10,7 @@ import (
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 
+	networkattachmentdefinitionlister "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/listers/k8s.cni.cncf.io/v1"
 	egressfirewalllister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/listers/egressfirewall/v1"
 
 	egressiplister "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/listers/egressip/v1"
@@ -301,6 +302,8 @@ func newInformerLister(oType reflect.Type, sharedInformer cache.SharedIndexInfor
 		return apiextensionslister.NewCustomResourceDefinitionLister(sharedInformer.GetIndexer()), nil
 	case egressIPType:
 		return egressiplister.NewEgressIPLister(sharedInformer.GetIndexer()), nil
+	case networkattachmentdefinitionType:
+		return networkattachmentdefinitionlister.NewNetworkAttachmentDefinitionLister(sharedInformer.GetIndexer()), nil
 	}
 
 	return nil, fmt.Errorf("cannot create lister from type %v", oType)

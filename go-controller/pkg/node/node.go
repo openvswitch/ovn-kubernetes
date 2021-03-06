@@ -17,6 +17,7 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/informer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
+	ovntypes "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	kapi "k8s.io/api/core/v1"
@@ -189,7 +190,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 			klog.Infof("Waiting to retrieve node %s: %v", n.name, err)
 			return false, nil
 		}
-		subnets, err = util.ParseNodeHostSubnetAnnotation(node)
+		subnets, err = util.ParseNodeHostSubnetAnnotation(node, ovntypes.DefaultNetworkName)
 		if err != nil {
 			klog.Infof("Waiting for node %s to start, no annotation found on node for subnet: %v", n.name, err)
 			return false, nil

@@ -47,7 +47,7 @@ func (ovn *Controller) AddEndpoints(ep *kapi.Endpoints) error {
 	klog.Infof("Adding endpoints: %s for namespace: %s", ep.Name, ep.Namespace)
 	// get service
 	// TODO: cache the service
-	svc, err := ovn.watchFactory.GetService(ep.Namespace, ep.Name)
+	svc, err := ovn.mc.watchFactory.GetService(ep.Namespace, ep.Name)
 	if err != nil {
 		// This is not necessarily an error. For e.g when there are endpoints
 		// without a corresponding service.
@@ -137,18 +137,18 @@ func (ovn *Controller) handleNodePortLB(node *kapi.Node) error {
 	if physicalIPs, _ = ovn.getGatewayPhysicalIPs(gatewayRouter); physicalIPs == nil {
 		return fmt.Errorf("gateway physical IP for node %q does not yet exist", node.Name)
 	}
-	namespaces, err := ovn.watchFactory.GetNamespaces()
+	namespaces, err := ovn.mc.watchFactory.GetNamespaces()
 	if err != nil {
 		return fmt.Errorf("failed to get k8s namespaces: %v", err)
 	}
 	for _, ns := range namespaces {
-		endpoints, err := ovn.watchFactory.GetEndpoints(ns.Name)
+		endpoints, err := ovn.mc.watchFactory.GetEndpoints(ns.Name)
 		if err != nil {
 			klog.Errorf("Failed to get k8s endpoints: %v", err)
 			continue
 		}
 		for _, ep := range endpoints {
-			svc, err := ovn.watchFactory.GetService(ep.Namespace, ep.Name)
+			svc, err := ovn.mc.watchFactory.GetService(ep.Namespace, ep.Name)
 			if err != nil {
 				continue
 			}
@@ -178,7 +178,7 @@ func (ovn *Controller) handleNodePortLB(node *kapi.Node) error {
 
 func (ovn *Controller) deleteEndpoints(ep *kapi.Endpoints) error {
 	klog.Infof("Deleting endpoints: %s for namespace: %s", ep.Name, ep.Namespace)
-	svc, err := ovn.watchFactory.GetService(ep.Namespace, ep.Name)
+	svc, err := ovn.mc.watchFactory.GetService(ep.Namespace, ep.Name)
 	if err != nil {
 		// This is not necessarily an error. For e.g when a service is deleted,
 		// you will get endpoint delete event and the call to fetch service

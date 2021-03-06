@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/cni/types"
+	networkattachmentdefinitionapi "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -306,7 +306,7 @@ func TestGetPodNetSelAnnotation(t *testing.T) {
 		inpPod           v1.Pod
 		inpNetAnnotation string
 		expErr           bool
-		expOutput        []*types.NetworkSelectionElement
+		expOutput        []*networkattachmentdefinitionapi.NetworkSelectionElement
 	}{
 		{
 			desc:             "empty annotation string input",

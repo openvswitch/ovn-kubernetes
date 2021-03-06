@@ -163,7 +163,8 @@ func appRun(app *cli.App, netns ns.NetNS) {
 }
 
 func createNodeAnnotationsForSubnet(subnet string) map[string]string {
-	subnetAnnotations, err := util.CreateNodeHostSubnetAnnotation(ovntest.MustParseIPNets(subnet))
+	subnetAnnotations := map[string]string{}
+	err := util.UpdateNodeHostSubnetAnnotation(subnetAnnotations, ovntest.MustParseIPNets(subnet), types.DefaultNetworkName)
 	Expect(err).NotTo(HaveOccurred())
 	annotations := make(map[string]string)
 	for k, v := range subnetAnnotations {

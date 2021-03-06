@@ -186,5 +186,31 @@ func HashForOVN(s string) string {
 	}
 	hashString := strconv.FormatUint(h.Sum64(), 10)
 	return fmt.Sprintf("a%s", hashString)
+}
 
+func GetNetworkPrefix(netName string) string {
+	if netName == types.DefaultNetworkName {
+		return ""
+	}
+	return netName + "_"
+}
+
+// GetNetworkNameFromExternalId returns the network_name of the external_id strings
+func GetNetworkNameFromExternalId(externalId string) string {
+	netName := GetDbValByKey(externalId, "network_name")
+	if netName == "" {
+		netName = types.DefaultNetworkName
+	}
+	return netName
+}
+
+// GetDbValByKey returns the value of the specified key in a space separated string (each in the form of k=v)
+func GetDbValByKey(keyValString, key string) string {
+	keyVals := strings.Fields(keyValString)
+	for _, keyVal := range keyVals {
+		if strings.HasPrefix(keyVal, key+"=") {
+			return strings.TrimPrefix(keyVal, key+"=")
+		}
+	}
+	return ""
 }

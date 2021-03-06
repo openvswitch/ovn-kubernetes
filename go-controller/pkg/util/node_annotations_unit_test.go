@@ -283,7 +283,7 @@ func TestParseNodeL3GatewayAnnotation(t *testing.T) {
 				},
 			},
 			errAssert: true,
-			errMatch:  fmt.Errorf("%s annotation for %s network not found", ovnNodeL3GatewayConfig, ovnDefaultNetworkGateway),
+			errMatch:  fmt.Errorf("%s annotation not found", ovnNodeL3GatewayConfig),
 		},
 		{
 			desc: "error: nod chassis ID annotation not found",
