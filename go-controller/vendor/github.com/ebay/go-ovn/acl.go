@@ -226,6 +226,83 @@ func (odbi *ovndb) aclAddImp(entityType EntityType, entity, direct, match, actio
 	return &OvnCommand{operations, odbi, make([][]map[string]interface{}, len(operations))}, nil
 }
 
+func (odbi *ovndb) aclSetMatchEntityImp(entityType EntityType, entity, direct, oldMatch, newMatch string, priority int)  (*OvnCommand, error) {
+	row := make(OVNRow)
+	row["direction"] = direct
+	row["match"] = oldMatch
+	row["priority"] = priority
+
+	aclUUID, err := odbi.getACLUUIDByRow(entityType, entity, row)
+	if err != nil {
+		return nil, err
+	} else if len(aclUUID) == 0 {
+		return nil, ErrorNotFound
+	}
+
+	// Check if an ACL with the newMatch already exists
+	row["match"] = newMatch
+	_, err = odbi.getACLUUIDByRow(entityType, entity, row)
+	if err == nil {
+		return nil, ErrorExist
+	}
+
+	// remove keys that don't need to be updated
+	delete(row,"direction")
+	delete(row,"priority")
+
+	condition := libovsdb.NewCondition("_uuid", "==", stringToGoUUID(aclUUID))
+	updateOp := libovsdb.Operation{
+		Op:    opUpdate,
+		Table: TableACL,
+		Row:   row,
+		Where: []interface{}{condition},
+	}
+	operations := []libovsdb.Operation{updateOp}
+	return &OvnCommand{operations, odbi, make([][]map[string]interface{}, len(operations))}, nil
+}
+
+func (odbi *ovndb) aCLSetLoggingEntityimp(entityType EntityType, entity, direct, match string, priority int, newLogflag bool, newMeter, newSeverity string) (*OvnCommand, error) {
+	row := make(OVNRow)
+	row["direction"] = direct
+	row["match"] = match
+	row["priority"] = priority
+
+	aclUUID, err := odbi.getACLUUIDByRow(entityType, entity, row)
+	if err != nil {
+		return nil, err
+	} else if len(aclUUID) == 0 {
+		return nil, ErrorNotFound
+	}
+
+	// reinitialize row and add the fields that need to be updated
+	row = make(OVNRow)
+	row["log"] = newLogflag
+	if newLogflag {
+		ok := odbi.meterFind(newMeter)
+		if ok {
+			row["meter"] = newMeter
+		}
+		switch newSeverity {
+		case "alert", "debug", "info", "notice", "warning":
+			row["severity"] = newSeverity
+		case "":
+			row["severity"] = "info"
+		default:
+			return nil, ErrorOption
+		}
+	}
+
+	condition := libovsdb.NewCondition("_uuid", "==", stringToGoUUID(aclUUID))
+	updateOp := libovsdb.Operation{
+		Op:    opUpdate,
+		Table: TableACL,
+		Row:   row,
+		Where: []interface{}{condition},
+	}
+	operations := []libovsdb.Operation{updateOp}
+	return &OvnCommand{operations, odbi, make([][]map[string]interface{}, len(operations))}, nil
+}
+
 func (odbi *ovndb) aclDelImp(entityType EntityType, entity, direct, match string, priority int, external_ids map[string]string) (*OvnCommand, error) {
 	var table string
 

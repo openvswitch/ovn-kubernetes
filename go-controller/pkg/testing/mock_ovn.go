@@ -17,6 +17,7 @@ const (
 	ChassisType           string = "Chassis"
 	ACLType               string = "ACL"
 	ChassisPrivateType    string = "Chassis_Private"
+	PortGroupType         string = "Port_Group"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 type UpdateCache struct {
 	FieldType  string
 	FieldValue interface{}
+	UpdateOp   string
 }
 
 // object cache for mock ovn client
@@ -78,7 +80,20 @@ func NewMockOVNClient(db string) *MockOVNClient {
 	mock.cache[ChassisType] = make(MockObjectCacheByName)
 	mock.cache[LogicalSwitchType] = make(MockObjectCacheByName)
 	mock.cache[ChassisPrivateType] = make(MockObjectCacheByName)
+	mock.cache[ACLType] = make(MockObjectCacheByName)
+	mock.cache[PortGroupType] = make(MockObjectCacheByName)
 	return mock
+}
+
+// Debug function used to dump the mock cache
+func PrintCache(client *MockOVNClient) {
+	fmt.Printf("MockOVNClient cache:\n")
+	for k1, v1 := range client.cache {
+		fmt.Printf("  %+v cache:\n", k1)
+		for k2, v2 := range v1 {
+			fmt.Printf("    %+v : %+v\n", k2, v2)
+		}
+	}
 }
 
 func functionName() string {
@@ -97,6 +112,31 @@ func functionName() string {
 func (mock *MockOVNClient) Close() error {
 	mock.connected = false
 	return nil
+}
+
+type mockExecutionCount struct {
+	count int
+	mutex sync.Mutex
+}
+
+var mockExecutionCounter mockExecutionCount
+
+func GetNumMockExecutions() int {
+	mockExecutionCounter.mutex.Lock()
+	defer mockExecutionCounter.mutex.Unlock()
+	return mockExecutionCounter.count
+}
+
+func ResetNumMockExecutions() {
+	mockExecutionCounter.mutex.Lock()
+	defer mockExecutionCounter.mutex.Unlock()
+	mockExecutionCounter.count = 0
+}
+
+func incNumMockExecutions() {
+	mockExecutionCounter.mutex.Lock()
+	defer mockExecutionCounter.mutex.Unlock()
+	mockExecutionCounter.count++
 }
 
 func (mock *MockOVNClient) ExecuteMockCommand(e *MockExecution) error {
@@ -131,6 +171,7 @@ func (mock *MockOVNClient) ExecuteMockCommand(e *MockExecution) error {
 	default:
 		return fmt.Errorf("invalid command op: %s", e.op)
 	}
+	incNumMockExecutions()
 	return nil
 }
 
@@ -170,6 +211,8 @@ func (mock *MockOVNClient) updateCache(table string, objName string, update Upda
 	switch table {
 	case LogicalSwitchPortType:
 		return mock.updateLSPCache(objName, update, mockCache)
+	case PortGroupType:
+		return mock.updatePortGroupCache(objName, update, mockCache)
 	default:
 		return fmt.Errorf("mock cache updates for %s are not implemented yet", table)
 	}

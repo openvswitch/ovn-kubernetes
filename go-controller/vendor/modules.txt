@@ -21,6 +21,8 @@ github.com/Microsoft/hcsshim/internal/schema1
 github.com/Microsoft/hcsshim/internal/schema2
 github.com/Microsoft/hcsshim/internal/timeout
 github.com/Microsoft/hcsshim/internal/vmcompute
+# github.com/anfredette/go-debug v0.0.0-20210119231223-106afdea07d3
+github.com/anfredette/go-debug
 # github.com/beorn7/perks v1.0.1
 github.com/beorn7/perks/quantile
 # github.com/bhendo/go-powershell v0.0.0-20190719160123-219e7fb4e41e
@@ -59,7 +61,7 @@ github.com/davecgh/go-spew/spew
 # github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96
 github.com/docker/spdystream
 github.com/docker/spdystream/spdy
-# github.com/ebay/go-ovn v0.1.1-0.20210225191205-f6ee8f3f087c
+# github.com/ebay/go-ovn v0.1.1-0.20210225191205-f6ee8f3f087c => github.com/anfredette/go-ovn v0.1.1-0.20210316121757-143aac0bcaeb
 github.com/ebay/go-ovn
 # github.com/ebay/libovsdb v0.2.1-0.20200719163122-3332afaeb27c
 github.com/ebay/libovsdb

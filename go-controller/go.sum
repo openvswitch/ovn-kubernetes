@@ -56,6 +56,10 @@ github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuy
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
 github.com/alexflint/go-filemutex v0.0.0-20171022225611-72bdc8eae2ae/go.mod h1:CgnQgUtFrFz9mxFNtED3jI5tLDjKlOM+oUF/sTk6ps0=
+github.com/anfredette/go-debug v0.0.0-20210119231223-106afdea07d3 h1:pK+N9iNIJlTiuEmAYao6z1P3aezo/Mmee72n+MMZOh8=
+github.com/anfredette/go-debug v0.0.0-20210119231223-106afdea07d3/go.mod h1:jM0GK+sx7eY37vVDi9Xys4r5sxaVm1iQUk+UmNxnOOY=
+github.com/anfredette/go-ovn v0.1.1-0.20210316121757-143aac0bcaeb h1:lob0rLMv9CZ0jm6ButWK7rFKW6eHtFJBwhhly2ScMuA=
+github.com/anfredette/go-ovn v0.1.1-0.20210316121757-143aac0bcaeb/go.mod h1:Du3Zt/R+DqyqtY5aNTd2gB9bg/igI1RR4fUj6AjmkjI=
 github.com/armon/circbuf v0.0.0-20150827004946-bbbad097214e/go.mod h1:3U/XgcO3hCbHZ8TKRvWD2dDTCfh9M9ya+I9JpbB7O8o=
 github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da/go.mod h1:Q73ZrmVTwzkszR9V5SSuryQ31EELlFMUz1kKyl939pY=
 github.com/armon/go-radix v0.0.0-20180808171621-7fddfc383310/go.mod h1:ufUuZ+zHj4x4TnLV4JWEpy2hxWSpsRywHrMgIH9cCH8=
@@ -138,8 +142,6 @@ github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815/go.mod h1:WwZ+bS3
 github.com/dustin/go-humanize v0.0.0-20171111073723-bb3d318650d4/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
-github.com/ebay/go-ovn v0.1.1-0.20210225191205-f6ee8f3f087c h1:ZhauuMfb01gW+x/QwV4vRQnBn8b5BX10r2fvC2FhvFs=
-github.com/ebay/go-ovn v0.1.1-0.20210225191205-f6ee8f3f087c/go.mod h1:Du3Zt/R+DqyqtY5aNTd2gB9bg/igI1RR4fUj6AjmkjI=
 github.com/ebay/libovsdb v0.0.0-20190718202342-e49b8c4e1142/go.mod h1:TPIbkgdnu8IfDA510pGDS3zYGmnvrPttnge3uhBQf/0=
 github.com/ebay/libovsdb v0.2.1-0.20200719163122-3332afaeb27c h1:YSECgIEwf07ycYVwVM8KXCgkpXajecPqRyAuyFELZxA=
 github.com/ebay/libovsdb v0.2.1-0.20200719163122-3332afaeb27c/go.mod h1:ZW5Fi5OPYcMy3EI20lW62TKBMHSlaDPlTqC3Gm4ev9Q=

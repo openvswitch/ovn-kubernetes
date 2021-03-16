@@ -2,6 +2,7 @@ package ovn
 
 import (
 	"fmt"
+	goovn "github.com/ebay/go-ovn"
 	"net"
 	"strings"
 	"time"
@@ -71,7 +72,7 @@ func (oc *Controller) addPodToNamespace(ns string, portInfo *lpInfo) error {
 	// If multicast is allowed and enabled for the namespace, add the port
 	// to the allow policy.
 	if oc.multicastSupport && nsInfo.multicastEnabled {
-		if err := podAddAllowMulticastPolicy(ns, portInfo); err != nil {
+		if err := podAddAllowMulticastPolicy(oc.ovnNBClient, ns, portInfo); err != nil {
 			return err
 		}
 	}
@@ -94,7 +95,7 @@ func (oc *Controller) deletePodFromNamespace(ns string, portInfo *lpInfo) error 
 
 	// Remove the port from the multicast allow policy.
 	if oc.multicastSupport && nsInfo.multicastEnabled {
-		if err := podDeleteAllowMulticastPolicy(ns, portInfo); err != nil {
+		if err := podDeleteAllowMulticastPolicy(oc.ovnNBClient, ns, portInfo); err != nil {
 			return err
 		}
 	}
@@ -130,7 +131,7 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 	if enabled {
 		err = oc.createMulticastAllowPolicy(ns.Name, nsInfo)
 	} else {
-		err = deleteMulticastAllowPolicy(ns.Name, nsInfo)
+		err = deleteMulticastAllowPolicy(oc.ovnNBClient, ns.Name, nsInfo)
 	}
 	if err != nil {
 		klog.Errorf(err.Error())
@@ -143,7 +144,7 @@ func (oc *Controller) multicastUpdateNamespace(ns *kapi.Namespace, nsInfo *names
 func (oc *Controller) multicastDeleteNamespace(ns *kapi.Namespace, nsInfo *namespaceInfo) {
 	if nsInfo.multicastEnabled {
 		nsInfo.multicastEnabled = false
-		if err := deleteMulticastAllowPolicy(ns.Name, nsInfo); err != nil {
+		if err := deleteMulticastAllowPolicy(oc.ovnNBClient, ns.Name, nsInfo); err != nil {
 			klog.Errorf(err.Error())
 		}
 	}
@@ -153,7 +154,7 @@ func (oc *Controller) multicastDeleteNamespace(ns *kapi.Namespace, nsInfo *names
 // that apply network configuration to all pods in a namespace will use the same port group.
 // This function ensures that the namespace wide port group will only be created once and
 // cleaned up when no object that relies on it exists.
-func (nsInfo *namespaceInfo) updateNamespacePortGroup(ns string) error {
+func (nsInfo *namespaceInfo) updateNamespacePortGroup(ovnNBClient goovn.Client, ns string) error {
 	if nsInfo.multicastEnabled {
 		if nsInfo.portGroupUUID != "" {
 			// Multicast is enabled and the port group exists so there is nothing to do.
@@ -161,13 +162,16 @@ func (nsInfo *namespaceInfo) updateNamespacePortGroup(ns string) error {
 		}
 
 		// The port group should exist but doesn't so create it
-		portGroupUUID, err := createPortGroup(ns, hashedPortGroup(ns))
+		portGroupUUID, err := createPortGroup(ovnNBClient, ns, hashedPortGroup(ns))
 		if err != nil {
 			return fmt.Errorf("failed to create port_group for %s (%v)", ns, err)
 		}
 		nsInfo.portGroupUUID = portGroupUUID
 	} else {
-		deletePortGroup(hashedPortGroup(ns))
+		err := deletePortGroup(ovnNBClient, hashedPortGroup(ns))
+		if err != nil {
+			klog.Errorf("%v", err)
+		}
 		nsInfo.portGroupUUID = ""
 	}
 	return nil

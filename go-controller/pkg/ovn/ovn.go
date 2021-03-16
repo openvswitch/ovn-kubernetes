@@ -106,8 +106,10 @@ type namespaceInfo struct {
 	aclLogging ACLLoggingLevels
 
 	// Per-namespace port group default deny UUIDs
-	portGroupIngressDenyUUID string // Port group for ingress deny rule
-	portGroupEgressDenyUUID  string // Port group for egress deny rule
+	portGroupIngressDenyUUID string // Port group UUID for ingress deny rule
+	portGroupIngressDenyName string // Port group Name for ingress deny rule
+	portGroupEgressDenyUUID  string // Port group UUID for egress deny rule
+	portGroupEgressDenyName  string // Port group Name for egress deny rule
 }
 
 // Controller structure is the object which holds the controls for starting

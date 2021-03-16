@@ -76,6 +76,10 @@ type Client interface {
 	ACLAddEntity(entityType EntityType, entity, direct, match, action string, priority int, external_ids map[string]string, logflag bool, meter string, severity string) (*OvnCommand, error)
 	// Deprecated in favor of ACLAddEntity(). Add ACL to logical switch.
 	ACLAdd(ls, direct, match, action string, priority int, external_ids map[string]string, logflag bool, meter string, severity string) (*OvnCommand, error)
+	// Set (change) match criteria for ACL
+	ACLSetMatchEntity(entityType EntityType, entity, direct, oldMatch, newMatch string, priority int) (*OvnCommand, error)
+	// Set (change) logging for ACL
+	ACLSetLoggingEntity(entityType EntityType, entity, direct, match string, priority int, newLogflag bool, newMeter, newSeverity string) (*OvnCommand, error)
 	// Delete acl from entity (PORT_GROUP or LOGICAL_SWITCH)
 	ACLDelEntity(entityType EntityType, entity, direct, match string, priority int, external_ids map[string]string) (*OvnCommand, error)
 	// Deprecated in favor of ACLDelEntity(). Delete acl from logical switch
@@ -618,6 +622,16 @@ func (c *ovndb) ACLAddEntity(entityType EntityType, entity, direct, match, actio
 
 func (c *ovndb) ACLAdd(ls, direct, match, action string, priority int, external_ids map[string]string, logflag bool, meter string, severity string) (*OvnCommand, error) {
 	return c.aclAddImp(LOGICAL_SWITCH, ls, direct, match, action, priority, external_ids, logflag, meter, severity)
+}
+
+// Set (change) match criteria for ACL
+func (c *ovndb) ACLSetMatchEntity(entityType EntityType, entity, direct, oldMatch, newMatch string, priority int) (*OvnCommand, error) {
+	return c.aclSetMatchEntityImp(entityType, entity, direct, oldMatch, newMatch, priority)
+}
+
+// Set (change) logging for ACL
+func (c *ovndb) ACLSetLoggingEntity(entityType EntityType, entity, direct, match string, priority int, newLogflag bool, newMeter, newSeverity string) (*OvnCommand, error) {
+	return c.aCLSetLoggingEntityimp(entityType, entity, direct, match, priority, newLogflag, newMeter, newSeverity)
 }
 
 func (c *ovndb) ACLDelEntity(entityType EntityType, entity, direct, match string, priority int, external_ids map[string]string) (*OvnCommand, error) {

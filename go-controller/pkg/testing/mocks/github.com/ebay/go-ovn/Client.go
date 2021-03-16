@@ -152,6 +152,52 @@ func (_m *Client) ACLListEntity(entityType goovn.EntityType, entity string) ([]*
 	return r0, r1
 }
 
+// ACLSetLoggingEntity provides a mock function with given fields: entityType, entity, direct, match, priority, newLogflag, newMeter, newSeverity
+func (_m *Client) ACLSetLoggingEntity(entityType goovn.EntityType, entity string, direct string, match string, priority int, newLogflag bool, newMeter string, newSeverity string) (*goovn.OvnCommand, error) {
+	ret := _m.Called(entityType, entity, direct, match, priority, newLogflag, newMeter, newSeverity)
+
+	var r0 *goovn.OvnCommand
+	if rf, ok := ret.Get(0).(func(goovn.EntityType, string, string, string, int, bool, string, string) *goovn.OvnCommand); ok {
+		r0 = rf(entityType, entity, direct, match, priority, newLogflag, newMeter, newSeverity)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*goovn.OvnCommand)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(goovn.EntityType, string, string, string, int, bool, string, string) error); ok {
+		r1 = rf(entityType, entity, direct, match, priority, newLogflag, newMeter, newSeverity)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ACLSetMatchEntity provides a mock function with given fields: entityType, entity, direct, oldMatch, newMatch, priority
+func (_m *Client) ACLSetMatchEntity(entityType goovn.EntityType, entity string, direct string, oldMatch string, newMatch string, priority int) (*goovn.OvnCommand, error) {
+	ret := _m.Called(entityType, entity, direct, oldMatch, newMatch, priority)
+
+	var r0 *goovn.OvnCommand
+	if rf, ok := ret.Get(0).(func(goovn.EntityType, string, string, string, string, int) *goovn.OvnCommand); ok {
+		r0 = rf(entityType, entity, direct, oldMatch, newMatch, priority)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*goovn.OvnCommand)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(goovn.EntityType, string, string, string, string, int) error); ok {
+		r1 = rf(entityType, entity, direct, oldMatch, newMatch, priority)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ASAdd provides a mock function with given fields: name, addrs, external_ids
 func (_m *Client) ASAdd(name string, addrs []string, external_ids map[string]string) (*goovn.OvnCommand, error) {
 	ret := _m.Called(name, addrs, external_ids)

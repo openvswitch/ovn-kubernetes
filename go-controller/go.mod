@@ -6,6 +6,7 @@ require (
 	github.com/Mellanox/sriovnet v1.0.2
 	github.com/Microsoft/go-winio v0.4.15 // indirect
 	github.com/Microsoft/hcsshim v0.8.10-0.20200715222032-5eafd1556990
+	github.com/anfredette/go-debug v0.0.0-20210119231223-106afdea07d3
 	github.com/bhendo/go-powershell v0.0.0-20190719160123-219e7fb4e41e
 	github.com/cenk/hub v1.0.1 // indirect
 	github.com/containernetworking/cni v0.8.0
@@ -44,6 +45,7 @@ require (
 )
 
 replace (
+	github.com/ebay/go-ovn => github.com/anfredette/go-ovn v0.1.1-0.20210316121757-143aac0bcaeb
 	github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 	k8s.io/api => k8s.io/api v0.20.0
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.20.0

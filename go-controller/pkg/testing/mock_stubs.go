@@ -63,6 +63,16 @@ func (mock *MockOVNClient) ACLAddEntity(entityType goovn.EntityType, entity, dir
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
 }
 
+// Set (change) match criteria for ACL
+func (mock *MockOVNClient) ACLSetMatchEntity(entityType goovn.EntityType, entity, direct, oldMatch, newMatch string, priority int) (*goovn.OvnCommand, error) {
+	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
+}
+
+// Set (change) logging for ACL
+func (mock *MockOVNClient) ACLSetLoggingEntity(entityType goovn.EntityType, entity, direct, match string, priority int, newLogflag bool, newMeter, newSeverity string) (*goovn.OvnCommand, error) {
+	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
+}
+
 // Delete acl from entity (PORT_GROUP or LOGICAL_SWITCH)
 func (mock *MockOVNClient) ACLDelEntity(entityType goovn.EntityType, entity, direct, match string, priority int, external_ids map[string]string) (*goovn.OvnCommand, error) {
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
@@ -316,36 +326,6 @@ func (mock *MockOVNClient) SBGlobalSetOptions(options map[string]string) (*goovn
 
 // Get SB_Global table options
 func (mock *MockOVNClient) SBGlobalGetOptions() (map[string]string, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Creates a new port group in the Port_Group table named "group" with optional "ports"  and "external_ids".
-func (mock *MockOVNClient) PortGroupAdd(group string, ports []string, external_ids map[string]string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Sets "ports" and/or "external_ids" on the port group named "group". It is an error if group does not exist.
-func (mock *MockOVNClient) PortGroupUpdate(group string, ports []string, external_ids map[string]string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Add port to port group.
-func (mock *MockOVNClient) PortGroupAddPort(group string, port string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Remove port from port group.
-func (mock *MockOVNClient) PortGroupRemovePort(group string, port string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Deletes port group "group". It is an error if "group" does not exist.
-func (mock *MockOVNClient) PortGroupDel(group string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Get PortGroup data structure if it exists
-func (mock *MockOVNClient) PortGroupGet(group string) (*goovn.PortGroup, error) {
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
 }
 

@@ -27,7 +27,8 @@ const (
 	k8sSCTPLoadBalancerIP   = "k8s_sctp_load_balancer"
 	fakeUUID                = "8a86f6d8-7972-4253-b0bd-ddbef66e9303"
 	fakeUUIDv6              = "8a86f6d8-7972-4253-b0bd-ddbef66e9304"
-	ovnClusterPortGroupUUID = "740515f3-7ece-4cd1-9be5-6fdb9066d198"
+	fakePgUUID              = "bf02f460-5058-4689-8fcb-d31a1e484ed2"
+	ovnClusterPortGroupUUID = fakePgUUID
 )
 
 type FakeOVN struct {
