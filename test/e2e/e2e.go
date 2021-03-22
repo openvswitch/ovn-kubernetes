@@ -1488,6 +1488,58 @@ var _ = ginkgo.Describe("e2e ingress gateway traffic validation", func() {
 	})
 })
 
+// This test perform a longevity test, where it spawns multiple container
+// and wait for them to finish executing sleep. It does this exercise for
+// 20 minutes and stops. Each container starts, sleeps for 10 seconds and
+// goes to success or failure state.
+var _ = ginkgo.Describe("e2e longevity test", func() {
+	var svcname = "nettest"
+
+	f := framework.NewDefaultFramework(svcname)
+
+	ginkgo.BeforeEach(func() {
+
+		// retrieve worker node names
+		nodes, err := e2enode.GetBoundedReadySchedulableNodes(f.ClientSet, 3)
+		framework.ExpectNoError(err)
+		if len(nodes.Items) < 3 {
+			framework.Failf(
+				"Test requires >= 3 Ready nodes, but there are only %v nodes",
+				len(nodes.Items))
+		}
+	})
+
+	ginkgo.It("should create pods for a while without failing", func() {
+		ginkgo.By("Continuously creating pods for a while")
+
+		pod := 0
+		startTime := time.Now()
+
+		for time.Since(startTime) < 20*time.Minute {
+			// spin up 10 containers that each do nothing for 30 seconds
+
+			var errChans [10]chan error
+			for i, _ := range errChans {
+				errChans[i] = make(chan error)
+				go checkPodSleep(f, "", fmt.Sprintf("test-container-%v", pod), errChans[i])
+				pod++
+
+				time.Sleep(500 * time.Millisecond)
+			}
+
+			timeout := time.Now().Add(300 * time.Second)
+			for _, v := range errChans {
+				select {
+				case err := <-v:
+					framework.ExpectNoError(err)
+				case <-time.After(time.Until(timeout)):
+					framework.Failf("Error waiting for pods to finish the lifecycle.")
+				}
+			}
+		}
+	})
+})
+
 func getNodePodCIDR(nodeName string) (string, error) {
 	// retrieve the pod cidr for the worker node
 	jsonFlag := "jsonpath='{.metadata.annotations.k8s\\.ovn\\.org/node-subnets}'"
@@ -1507,4 +1559,68 @@ func getNodePodCIDR(nodeName string) (string, error) {
 		return dsSubnets["default"][0], nil
 	}
 	return "", fmt.Errorf("could not parse annotation %q", annotation)
+}
+
+func checkPodSleep(f *framework.Framework, nodeName, podName string, errChan chan error) {
+
+	contName := fmt.Sprintf("%s-container", podName)
+
+	command := []string{
+		"bash", "-c",
+		"sleep 10",
+	}
+
+	pod := &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: podName,
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:    contName,
+					Image:   agnhostImage,
+					Command: command,
+				},
+			},
+			NodeName:      nodeName,
+			RestartPolicy: v1.RestartPolicyNever,
+		},
+	}
+	podClient := f.ClientSet.CoreV1().Pods(f.Namespace.Name)
+	_, err := podClient.Create(context.Background(), pod, metav1.CreateOptions{})
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	err = e2epod.WaitForPodNotPending(f.ClientSet, f.Namespace.Name, podName)
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	result, err := podClient.Get(context.Background(), podName, metav1.GetOptions{})
+	if err != nil {
+		errChan <- err
+		return
+	}
+
+	framework.Logf("Created pod %q with IP %q %q", result.GetName(), result.Status.PodIP, result.Status.PodIPs)
+
+	err = e2epod.WaitForPodSuccessInNamespace(f.ClientSet, podName, f.Namespace.Name)
+
+	if err != nil {
+		logs, logErr := e2epod.GetPodLogs(f.ClientSet, f.Namespace.Name, pod.Name, contName)
+		if logErr != nil {
+			framework.Logf("Warning: Failed to get logs from pod %q: %v", pod.Name, logErr)
+		} else {
+			framework.Logf("pod %s/%s logs:\n%s", f.Namespace.Name, pod.Name, logs)
+		}
+		errChan <- err
+		return
+	}
+
+	err = podClient.Delete(context.Background(), podName, metav1.DeleteOptions{})
+
+	errChan <- err
 }
