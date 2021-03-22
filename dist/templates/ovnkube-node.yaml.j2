@@ -213,6 +213,8 @@ spec:
           value: "{{ ovn_multicast_enable }}"
         - name: OVN_UNPRIVILEGED_MODE
           value: "{{ ovn_unprivileged_mode }}"
+        - name: OVN_METRICS_SCRAPE_INTERVAL
+          value: "{{ ovn_metrics_scrape_interval }}"
 
         readinessProbe:
           exec:
@@ -255,6 +257,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.hostIP
+        - name: OVS_METRICS_SCRAPE_INTERVAL
+          value: "{{ ovs_metrics_scrape_interval }}"
         # end of container
 
       nodeSelector:

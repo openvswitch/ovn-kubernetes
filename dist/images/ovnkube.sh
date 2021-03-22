@@ -69,6 +69,8 @@ fi
 # OVN_REMOTE_PROBE_INTERVAL - ovn remote probe interval in ms (default 100000)
 # OVN_EGRESSIP_ENABLE - enable egress IP for ovn-kubernetes
 # OVN_UNPRIVILEGED_MODE - execute CNI ovs/netns commands from host (default no)
+# OVN_METRICS_SCRAPE_INTERVAL - ovn & ovnkube metrics scrape interval in sec (default 30)
+# OVS_METRICS_SCRAPE_INTERVAL - ovs metrics scrape interval in sec (default 30)
 
 # The argument to the command is the operation to be performed
 # ovn-master ovn-controller ovn-node display display_env ovn_debug
@@ -190,6 +192,10 @@ ovn_multicast_enable=${OVN_MULTICAST_ENABLE:-}
 #OVN_EGRESSIP_ENABLE - enable egress IP for ovn-kubernetes
 ovn_egressip_enable=${OVN_EGRESSIP_ENABLE:-false}
 ovn_acl_logging_rate_limit=${OVN_ACL_LOGGING_RATE_LIMIT:-"20"}
+# OVN_METRICS_SCRAPE_INTERVAL - metrics scrape interval in sec (default 30)
+ovn_metrics_scrape_interval=${OVN_METRICS_SCRAPE_INTERVAL:-30}
+# OVS_METRICS_SCRAPE_INTERVAL - metrics scrape interval in sec (default 30)
+ovs_metrics_scrape_interval=${OVS_METRICS_SCRAPE_INTERVAL:-30}
 
 # Determine the ovn rundir.
 if [[ -f /usr/bin/ovn-appctl ]]; then
@@ -902,6 +908,7 @@ ovn-master() {
     ${multicast_enabled_flag} \
     ${ovn_acl_logging_rate_limit_flag} \
     ${egressip_enabled_flag} \
+    --metrics-interval ${ovn_metrics_scrape_interval} \
     --metrics-bind-address ${ovnkube_master_metrics_bind_address} &
   echo "=============== ovn-master ========== running"
   wait_for_event attempts=3 process_ready ovnkube-master
@@ -1044,6 +1051,7 @@ ovn-node() {
     --inactivity-probe=${ovn_remote_probe_interval} \
     ${multicast_enabled_flag} \
     ${egressip_enabled_flag} \
+    --metrics-interval ${ovn_metrics_scrape_interval} \
     --ovn-metrics-bind-address ${ovn_metrics_bind_address} \
     --metrics-bind-address ${ovnkube_node_metrics_bind_address} &
 
@@ -1118,6 +1126,7 @@ ovs-metrics() {
   /usr/bin/ovn-kube-util \
     --loglevel=${ovnkube_loglevel} \
     ovs-exporter \
+    --metrics-interval ${ovs_metrics_scrape_interval} \
     --metrics-bind-address ${ovs_exporter_bind_address}
 
   echo "=============== ovs-metrics with pid ${?} terminated ========== "

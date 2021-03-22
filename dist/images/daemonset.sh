@@ -43,6 +43,8 @@ OVN_MULTICAST_ENABLE=""
 OVN_EGRESSIP_ENABLE=
 OVN_V4_JOIN_SUBNET=""
 OVN_V6_JOIN_SUBNET=""
+OVN_METRICS_SCRAPE_INTERVAL=""
+OVS_METRICS_SCRAPE_INTERVAL=""
 
 # Parse parameters given as arguments to this script.
 while [ "$1" != "" ]; do
@@ -163,6 +165,12 @@ while [ "$1" != "" ]; do
   --v6-join-subnet)
     OVN_V6_JOIN_SUBNET=$VALUE
     ;;
+  --ovn-metrics-interval)
+    OVN_METRICS_SCRAPE_INTERVAL=$VALUE
+    ;;
+  --ovs-metrics-interval)
+    OVS_METRICS_SCRAPE_INTERVAL=$VALUE
+    ;;
   *)
     echo "WARNING: unknown parameter \"$PARAM\""
     exit 1
@@ -250,6 +258,10 @@ ovn_v4_join_subnet=${OVN_V4_JOIN_SUBNET}
 echo "ovn_v4_join_subnet: ${ovn_v4_join_subnet}"
 ovn_v6_join_subnet=${OVN_V6_JOIN_SUBNET}
 echo "ovn_v6_join_subnet: ${ovn_v6_join_subnet}"
+ovn_metrics_scrape_interval=${OVN_METRICS_SCRAPE_INTERVAL:-30}
+echo "ovn_metrics_scrape_interval: ${ovn_metrics_scrape_interval}"
+ovs_metrics_scrape_interval=${OVS_METRICS_SCRAPE_INTERVAL:-30}
+echo "ovs_metrics_scrape_interval: ${ovs_metrics_scrape_interval}"
 
 ovn_image=${image} \
   ovn_image_pull_policy=${image_pull_policy} \
@@ -271,6 +283,8 @@ ovn_image=${image} \
   ovn_egress_ip_enable=${ovn_egress_ip_enable} \
   ovn_ssl_en=${ovn_ssl_en} \
   ovn_remote_probe_interval=${ovn_remote_probe_interval} \
+  ovn_metrics_scrape_interval=${ovn_metrics_scrape_interval} \
+  ovs_metrics_scrape_interval=${ovs_metrics_scrape_interval} \
   j2 ../templates/ovnkube-node.yaml.j2 -o ../yaml/ovnkube-node.yaml
 
 ovn_image=${image} \
@@ -293,6 +307,7 @@ ovn_image=${image} \
   ovn_ssl_en=${ovn_ssl_en} \
   ovn_master_count=${ovn_master_count} \
   ovn_gateway_mode=${ovn_gateway_mode} \
+  ovn_metrics_scrape_interval=${ovn_metrics_scrape_interval} \
   j2 ../templates/ovnkube-master.yaml.j2 -o ../yaml/ovnkube-master.yaml
 
 ovn_image=${image} \

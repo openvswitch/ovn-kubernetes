@@ -55,14 +55,15 @@ var (
 
 	// Default holds parsed config file parameters and command-line overrides
 	Default = DefaultConfig{
-		MTU:               1400,
-		ConntrackZone:     64000,
-		EncapType:         "geneve",
-		EncapIP:           "",
-		EncapPort:         DefaultEncapPort,
-		InactivityProbe:   100000, // in Milliseconds
-		OpenFlowProbe:     180,    // in Seconds
-		RawClusterSubnets: "10.128.0.0/14/23",
+		MTU:                   1400,
+		ConntrackZone:         64000,
+		EncapType:             "geneve",
+		EncapIP:               "",
+		EncapPort:             DefaultEncapPort,
+		InactivityProbe:       100000, // in Milliseconds
+		OpenFlowProbe:         180,    // in Seconds
+		RawClusterSubnets:     "10.128.0.0/14/23",
+		MetricsScrapeInterval: 30, // in seconds
 	}
 
 	// Logging holds logging-related parsed config file parameters and command-line overrides
@@ -167,6 +168,9 @@ type DefaultConfig struct {
 	// ClusterSubnets holds parsed cluster subnet entries and may be used
 	// outside the config module.
 	ClusterSubnets []CIDRNetworkEntry
+	// MetricsScrapeInterval captures the interval at which
+	// ovnkube & ovn metrics should be collected.
+	MetricsScrapeInterval int `gcfg:"metrics-scrape-interval"`
 }
 
 // LoggingConfig holds logging-related parsed config file parameters and command-line overrides
@@ -549,6 +553,12 @@ var CommonFlags = []cli.Flag{
 		Name:        "enable-multicast",
 		Usage:       "Adds multicast support. Valid only with --init-master option.",
 		Destination: &EnableMulticast,
+	},
+	&cli.IntFlag{
+		Name:        "metrics-interval",
+		Usage:       "The Interval at which ovnkube & ovn metrics are collected",
+		Destination: &cliConfig.Default.MetricsScrapeInterval,
+		Value:       Default.MetricsScrapeInterval,
 	},
 	// Logging options
 	&cli.IntFlag{

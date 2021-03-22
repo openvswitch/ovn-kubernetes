@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/cmd/ovn-kube-util/app"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	"github.com/urfave/cli/v2"
 	"k8s.io/klog/v2"
 )
@@ -41,7 +43,13 @@ func main() {
 		return nil
 	}
 
-	if err := c.Run(os.Args); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		util.ContextShutdownHandler(ctx, cancel)
+	}()
+
+	if err := c.RunContext(ctx, os.Args); err != nil {
 		klog.Exit(err)
 	}
 }

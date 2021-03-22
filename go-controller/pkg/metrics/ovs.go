@@ -409,18 +409,25 @@ func setOvsDatapathMetrics(datapaths []string) (err error) {
 }
 
 // ovsDatapathMetricsUpdate updates the ovs datapath metrics for every 30 sec
-func ovsDatapathMetricsUpdate() {
-	for {
-		time.Sleep(30 * time.Second)
-		datapaths, err := getOvsDatapaths()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
-			continue
-		}
+func ovsDatapathMetricsUpdate(metricsScrapeInterval int, stopChan chan struct{}) {
+	ticker := time.NewTicker(time.Duration(metricsScrapeInterval) * time.Second)
+	defer ticker.Stop()
 
-		err = setOvsDatapathMetrics(datapaths)
-		if err != nil {
-			klog.Errorf("%s", err.Error())
+	for {
+		select {
+		case <-ticker.C:
+			datapaths, err := getOvsDatapaths()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+				continue
+			}
+
+			err = setOvsDatapathMetrics(datapaths)
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+		case <-stopChan:
+			return
 		}
 	}
 }
@@ -534,37 +541,44 @@ func getOvsBridgeInfo() (bridgePortCount map[string]float64, portToBridgeMap map
 
 // ovsBridgeMetricsUpdate updates bridgeMetrics &
 // ovsInterface metrics & geneveInterface metrics for every 30sec
-func ovsBridgeMetricsUpdate() {
-	for {
-		time.Sleep(30 * time.Second)
-		// set geneve interface metrics
-		err := geneveInterfaceMetricsUpdate()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
-		}
-		// update ovs bridge metrics
-		bridgePortCountMapping, portBridgeMapping, err := getOvsBridgeInfo()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
-			continue
-		}
-		for brName, nPorts := range bridgePortCountMapping {
-			metricOvsBridge.WithLabelValues(brName).Set(1)
-			metricOvsBridgePortsTotal.WithLabelValues(brName).Set(nPorts)
-			flowsCount := getOvsBridgeOpenFlowsCount(brName)
-			metricOvsBridgeFlowsTotal.WithLabelValues(brName).Set(flowsCount)
-		}
-		metricOvsBridgeTotal.Set(float64(len(bridgePortCountMapping)))
+func ovsBridgeMetricsUpdate(metricsScrapeInterval int, stopChan chan struct{}) {
+	ticker := time.NewTicker(time.Duration(metricsScrapeInterval) * time.Second)
+	defer ticker.Stop()
 
-		interfaceToPortToBridgeMap, err := getInterfaceToPortToBridgeMapping(portBridgeMapping)
-		if err != nil {
-			klog.Errorf("%s", err.Error())
-			continue
-		}
-		// set ovs interface metrics.
-		err = ovsInterfaceMetricsUpdate(interfaceToPortToBridgeMap)
-		if err != nil {
-			klog.Errorf("%s", err.Error())
+	for {
+		select {
+		case <-ticker.C:
+			// set geneve interface metrics
+			err := geneveInterfaceMetricsUpdate()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+			// update ovs bridge metrics
+			bridgePortCountMapping, portBridgeMapping, err := getOvsBridgeInfo()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+				continue
+			}
+			for brName, nPorts := range bridgePortCountMapping {
+				metricOvsBridge.WithLabelValues(brName).Set(1)
+				metricOvsBridgePortsTotal.WithLabelValues(brName).Set(nPorts)
+				flowsCount := getOvsBridgeOpenFlowsCount(brName)
+				metricOvsBridgeFlowsTotal.WithLabelValues(brName).Set(flowsCount)
+			}
+			metricOvsBridgeTotal.Set(float64(len(bridgePortCountMapping)))
+
+			interfaceToPortToBridgeMap, err := getInterfaceToPortToBridgeMapping(portBridgeMapping)
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+				continue
+			}
+			// set ovs interface metrics.
+			err = ovsInterfaceMetricsUpdate(interfaceToPortToBridgeMap)
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+		case <-stopChan:
+			return
 		}
 	}
 }
@@ -864,13 +878,20 @@ func setOvsMemoryMetrics() (err error) {
 	return nil
 }
 
-func ovsMemoryMetricsUpdate() {
+func ovsMemoryMetricsUpdate(metricsScrapeInterval int, stopChan chan struct{}) {
+	ticker := time.NewTicker(time.Duration(metricsScrapeInterval) * time.Second)
+	defer ticker.Stop()
+
 	for {
-		err := setOvsMemoryMetrics()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
+		select {
+		case <-ticker.C:
+			err := setOvsMemoryMetrics()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+		case <-stopChan:
+			return
 		}
-		time.Sleep(30 * time.Second)
 	}
 }
 
@@ -917,13 +938,20 @@ func setOvsHwOffloadMetrics() (err error) {
 	return nil
 }
 
-func ovsHwOffloadMetricsUpdate() {
+func ovsHwOffloadMetricsUpdate(metricsScrapeInterval int, stopChan chan struct{}) {
+	ticker := time.NewTicker(time.Duration(metricsScrapeInterval) * time.Second)
+	defer ticker.Stop()
+
 	for {
-		err := setOvsHwOffloadMetrics()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
+		select {
+		case <-ticker.C:
+			err := setOvsHwOffloadMetrics()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+		case <-stopChan:
+			return
 		}
-		time.Sleep(30 * time.Second)
 	}
 }
 
@@ -1182,7 +1210,7 @@ var ovsVswitchdCoverageShowMetricsMap = map[string]*metricDetails{
 }
 var registerOvsMetricsOnce sync.Once
 
-func RegisterOvsMetrics() {
+func RegisterOvsMetrics(metricsScrapeInterval int, stopChan chan struct{}) {
 	registerOvsMetricsOnce.Do(func() {
 		getOvsVersionInfo()
 		prometheus.MustRegister(prometheus.NewGaugeFunc(
@@ -1231,14 +1259,14 @@ func RegisterOvsMetrics() {
 		registerCoverageShowMetrics(ovsVswitchd, MetricOvsNamespace, MetricOvsSubsystemVswitchd)
 
 		// OVS datapath metrics updater
-		go ovsDatapathMetricsUpdate()
+		go ovsDatapathMetricsUpdate(metricsScrapeInterval, stopChan)
 		// OVS bridge metrics updater
-		go ovsBridgeMetricsUpdate()
+		go ovsBridgeMetricsUpdate(metricsScrapeInterval, stopChan)
 		// OVS memory metrics updater
-		go ovsMemoryMetricsUpdate()
+		go ovsMemoryMetricsUpdate(metricsScrapeInterval, stopChan)
 		// OVS hw Offload metrics updater
-		go ovsHwOffloadMetricsUpdate()
+		go ovsHwOffloadMetricsUpdate(metricsScrapeInterval, stopChan)
 		// OVS coverage/show metrics updater.
-		go coverageShowMetricsUpdater(ovsVswitchd)
+		go coverageShowMetricsUpdater(ovsVswitchd, metricsScrapeInterval, stopChan)
 	})
 }

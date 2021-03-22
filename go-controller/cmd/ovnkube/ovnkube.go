@@ -6,11 +6,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"text/tabwriter"
 	"text/template"
 	"time"
@@ -102,28 +100,10 @@ func main() {
 		return runOvnKube(c)
 	}
 
-	ctx := context.Background()
-
-	// trap SIGHUP, SIGINT, SIGTERM, SIGQUIT and
-	// cancel the context
-	ctx, cancel := context.WithCancel(ctx)
-	exitCh := make(chan os.Signal, 1)
-	signal.Notify(exitCh,
-		syscall.SIGHUP,
-		syscall.SIGINT,
-		syscall.SIGTERM,
-		syscall.SIGQUIT)
-	defer func() {
-		signal.Stop(exitCh)
-		cancel()
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
-		select {
-		case s := <-exitCh:
-			klog.Infof("Received signal %s. Shutting down", s)
-			cancel()
-		case <-ctx.Done():
-		}
+		util.ContextShutdownHandler(ctx, cancel)
 	}()
 
 	if err := c.RunContext(ctx, os.Args); err != nil {
@@ -288,7 +268,7 @@ func runOvnKube(ctx *cli.Context) error {
 
 	// start the prometheus server to serve OVN Metrics (default port: 9476)
 	if config.Kubernetes.OVNMetricsBindAddress != "" {
-		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, node)
+		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, node, stopChan)
 		metrics.StartOVNMetricsServer(config.Kubernetes.OVNMetricsBindAddress)
 	}
 

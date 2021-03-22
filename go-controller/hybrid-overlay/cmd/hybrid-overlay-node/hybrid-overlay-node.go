@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 
 	"github.com/urfave/cli/v2"
 
@@ -61,27 +59,11 @@ func main() {
 }
 
 func signalHandler(c context.Context) {
-	ctx, cancel := context.WithCancel(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// trap SIGHUP, SIGINT, SIGTERM, SIGQUIT and
-	// cancel the context
-	exitCh := make(chan os.Signal, 1)
-	signal.Notify(exitCh,
-		syscall.SIGHUP,
-		syscall.SIGINT,
-		syscall.SIGTERM,
-		syscall.SIGQUIT)
-	defer func() {
-		signal.Stop(exitCh)
-		cancel()
-	}()
 	go func() {
-		select {
-		case s := <-exitCh:
-			klog.Infof("Received signal %s. Shutting down", s)
-			cancel()
-		case <-ctx.Done():
-		}
+		util.ContextShutdownHandler(ctx, cancel)
 	}()
 }
 

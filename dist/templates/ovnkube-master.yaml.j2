@@ -258,6 +258,8 @@ spec:
           value: "{{ ovn_multicast_enable }}"
         - name: OVN_ACL_LOGGING_RATE_LIMIT
           value: "{{ ovn_acl_logging_rate_limit }}"
+        - name: OVN_METRICS_SCRAPE_INTERVAL
+          value: "{{ ovn_metrics_scrape_interval }}"
       # end of container
 
       volumes:

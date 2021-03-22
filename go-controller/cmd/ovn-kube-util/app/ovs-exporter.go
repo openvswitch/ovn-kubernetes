@@ -1,16 +1,13 @@
 package app
 
 import (
-	"k8s.io/klog/v2"
-	"net/http"
-
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/urfave/cli/v2"
 	kexec "k8s.io/utils/exec"
 )
 
+var metricsScrapeInterval int
 var OvsExporterCommand = cli.Command{
 	Name:  "ovs-exporter",
 	Usage: "",
@@ -18,6 +15,12 @@ var OvsExporterCommand = cli.Command{
 		&cli.StringFlag{
 			Name:  "metrics-bind-address",
 			Usage: `The IP address and port for the metrics server to serve on (default ":9310")`,
+		},
+		&cli.IntFlag{
+			Name:        "metrics-interval",
+			Usage:       "The Interval at which ovs metrics are collected",
+			Value:       30,
+			Destination: &metricsScrapeInterval,
 		},
 	},
 	Action: func(ctx *cli.Context) error {
@@ -30,16 +33,16 @@ var OvsExporterCommand = cli.Command{
 			return err
 		}
 
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
+		stopChan := make(chan struct{})
 
 		// register ovs metrics that will be served off of /metrics path
-		metrics.RegisterOvsMetrics()
+		metrics.RegisterOvsMetrics(metricsScrapeInterval, stopChan)
+		// start the prometheus server to serve OVS Metrics (default port: 9310)
+		metrics.StartOVSMetricsServer(bindAddress)
 
-		err := http.ListenAndServe(bindAddress, mux)
-		if err != nil {
-			klog.Exitf("Starting metrics server failed: %v", err)
-		}
+		// run until cancelled
+		<-ctx.Context.Done()
+		close(stopChan)
 		return nil
 	},
 }

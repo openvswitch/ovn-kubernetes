@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -269,13 +270,20 @@ func setOvnControllerConfigurationMetrics() (err error) {
 	return nil
 }
 
-func ovnControllerConfigurationMetricsUpdater() {
+func ovnControllerConfigurationMetricsUpdater(stopChan chan struct{}) {
+	ticker := time.NewTicker(time.Duration(config.Default.MetricsScrapeInterval) * time.Second)
+	defer ticker.Stop()
+
 	for {
-		err := setOvnControllerConfigurationMetrics()
-		if err != nil {
-			klog.Errorf("%s", err.Error())
+		select {
+		case <-ticker.C:
+			err := setOvnControllerConfigurationMetrics()
+			if err != nil {
+				klog.Errorf("%s", err.Error())
+			}
+		case <-stopChan:
+			return
 		}
-		time.Sleep(30 * time.Second)
 	}
 }
 
@@ -302,7 +310,7 @@ func getPortCount(portType string) float64 {
 	return portCount
 }
 
-func RegisterOvnControllerMetrics() {
+func RegisterOvnControllerMetrics(stopChan chan struct{}) {
 	getOvnControllerVersionInfo()
 	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
 		prometheus.GaugeOpts{
@@ -377,7 +385,7 @@ func RegisterOvnControllerMetrics() {
 	registerCoverageShowMetrics(ovnController, MetricOvnNamespace, MetricOvnSubsystemController)
 
 	// ovn-controller configuration metrics updater
-	go ovnControllerConfigurationMetricsUpdater()
+	go ovnControllerConfigurationMetricsUpdater(stopChan)
 	// ovn-controller coverage show metrics updater
-	go coverageShowMetricsUpdater(ovnController)
+	go coverageShowMetricsUpdater(ovnController, config.Default.MetricsScrapeInterval, stopChan)
 }

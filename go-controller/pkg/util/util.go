@@ -1,12 +1,16 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"net"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
@@ -186,5 +190,23 @@ func HashForOVN(s string) string {
 	}
 	hashString := strconv.FormatUint(h.Sum64(), 10)
 	return fmt.Sprintf("a%s", hashString)
+}
 
+// ContextShutdownHandler traps the SIGHUP, SIGINT, SIGTERM, SIGQUIT and
+// cancels the context.
+func ContextShutdownHandler(ctx context.Context, cancel context.CancelFunc) {
+	exitCh := make(chan os.Signal, 1)
+	signal.Notify(exitCh,
+		syscall.SIGHUP,
+		syscall.SIGINT,
+		syscall.SIGTERM,
+		syscall.SIGQUIT)
+	// Wait for the signal or for context to be done
+	select {
+	case s := <-exitCh:
+		klog.Infof("Received signal %s. Shutting down", s)
+		cancel()
+	case <-ctx.Done():
+	}
+	signal.Stop(exitCh)
 }

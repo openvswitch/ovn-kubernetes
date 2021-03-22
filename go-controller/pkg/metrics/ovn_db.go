@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -349,7 +350,7 @@ func getOvnDbVersionInfo() {
 	}
 }
 
-func RegisterOvnDBMetrics(clientset kubernetes.Interface, k8sNodeName string) {
+func RegisterOvnDBMetrics(clientset kubernetes.Interface, k8sNodeName string, stopChan chan struct{}) {
 	err := wait.PollImmediate(1*time.Second, 300*time.Second, func() (bool, error) {
 		return checkPodRunsOnGivenNode(clientset, "ovn-db-pod=true", k8sNodeName, false)
 	})
@@ -416,16 +417,23 @@ func RegisterOvnDBMetrics(clientset kubernetes.Interface, k8sNodeName string) {
 			"nb": "OVN_Northbound",
 			"sb": "OVN_Southbound",
 		}
+		ticker := time.NewTicker(time.Duration(config.Default.MetricsScrapeInterval) * time.Second)
+		defer ticker.Stop()
+
 		for {
-			for direction, database := range dirDbMap {
-				if dbIsClustered {
-					ovnDBClusterStatusMetricsUpdater(direction, database)
+			select {
+			case <-ticker.C:
+				for direction, database := range dirDbMap {
+					if dbIsClustered {
+						ovnDBClusterStatusMetricsUpdater(direction, database)
+					}
+					ovnDBMemoryMetricsUpdater(direction, database)
+					ovnDBSizeMetricsUpdater(direction, database)
+					ovnE2eTimeStampUpdater(direction, database)
 				}
-				ovnDBMemoryMetricsUpdater(direction, database)
-				ovnDBSizeMetricsUpdater(direction, database)
-				ovnE2eTimeStampUpdater(direction, database)
+			case <-stopChan:
+				return
 			}
-			time.Sleep(30 * time.Second)
 		}
 	}()
 }
