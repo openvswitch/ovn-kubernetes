@@ -28,12 +28,12 @@ import (
 )
 
 const (
-	vxlanPort            = "4789" // IANA assigned VXLAN UDP port - rfc7348
 	podNetworkAnnotation = "k8s.ovn.org/pod-networks"
 	retryInterval        = 1 * time.Second  // polling interval timer
 	retryTimeout         = 40 * time.Second // polling timeout
 	ciNetworkName        = "kind"
 	agnhostImage         = "k8s.gcr.io/e2e-test-images/agnhost:2.26"
+	ovnK8sNamespace      = "ovn-kubernetes" //OVN kubernetes namespace
 )
 
 func checkContinuousConnectivity(f *framework.Framework, nodeName, podName, host string, port, timeout int, podChan chan *v1.Pod, errChan chan error) {
@@ -41,7 +41,7 @@ func checkContinuousConnectivity(f *framework.Framework, nodeName, podName, host
 
 	command := []string{
 		"bash", "-c",
-		"set -xe; for i in {1..10}; do nc -vz -w " + strconv.Itoa(timeout) + " " + host + " " + strconv.Itoa(port) + "; sleep 2; done",
+		"set -xe; for i in {1..10}; do nc -u -vz -w " + strconv.Itoa(timeout) + " " + host + " " + strconv.Itoa(port) + "; sleep 2; done",
 	}
 
 	pod := &v1.Pod{
@@ -342,6 +342,25 @@ func getPodAddress(podName, namespace string) string {
 	return podIP
 }
 
+func findOvnKubeMasterNode() (string, error) {
+	annotation, err := framework.RunKubectl("get", "configmap", "ovn-kubernetes-master", "-o",
+		"jsonpath='{.metadata.annotations.control-plane\\.alpha\\.kubernetes\\.io/leader}'", "--namespace="+ovnK8sNamespace)
+	framework.ExpectNoError(err, fmt.Sprintf("Unable to retrieve configmap (ovn-kubernetes-master) from %s %v", ovnK8sNamespace, err))
+	annotation = strings.Replace(annotation, "'", "", -1)
+
+	annotationJson := make(map[string]interface{})
+	if err = json.Unmarshal([]byte(annotation), &annotationJson); err != nil {
+		return "", fmt.Errorf("could not parse annotation %q", annotation)
+	}
+	ovnkubeMasterNode, ok := annotationJson["holderIdentity"]
+	if !ok {
+		framework.Failf("holderIdentity not found in the configmap (ovn-kubernetes-master) annotation")
+		return "", fmt.Errorf("holderIdentity not found in the configmap (ovn-kubernetes-master) annotation")
+	}
+	framework.Logf(fmt.Sprintf("master instance of ovnkuber-master is running on node %s", ovnkubeMasterNode))
+	return ovnkubeMasterNode.(string), nil
+}
+
 // runCommand runs the cmd and returns the combined stdout and stderr
 func runCommand(cmd ...string) (string, error) {
 	output, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
@@ -370,18 +389,18 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 		}
 	})
 
-	ginkgo.It("should provide Internet connection continuously when ovn-k8s pod is killed", func() {
+	ginkgo.It("should provide Internet connection continuously when ovnkube-node pod is killed", func() {
 		ginkgo.By("Running container which tries to connect to 8.8.8.8 in a loop")
 
 		podChan, errChan := make(chan *v1.Pod), make(chan error)
-		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 30, podChan, errChan)
+		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 10, podChan, errChan)
 
 		testPod := <-podChan
 		framework.Logf("Test pod running on %q", testPod.Spec.NodeName)
 
 		time.Sleep(5 * time.Second)
 
-		podClient := f.ClientSet.CoreV1().Pods("ovn-kubernetes")
+		podClient := f.ClientSet.CoreV1().Pods(ovnK8sNamespace)
 
 		podList, _ := podClient.List(context.Background(), metav1.ListOptions{})
 		podName := ""
@@ -399,31 +418,94 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 		framework.ExpectNoError(<-errChan)
 	})
 
-	ginkgo.It("should provide Internet connection continuously when master is killed", func() {
+	ginkgo.It("should provide Internet connection continuously when pod running master instance of ovnkube-master is killed", func() {
 		ginkgo.By("Running container which tries to connect to 8.8.8.8 in a loop")
 
+		ovnKubeMasterNode, err := findOvnKubeMasterNode()
+		framework.ExpectNoError(err, fmt.Sprintf("unable to find current master of ovnkuber-master cluster %v", err))
 		podChan, errChan := make(chan *v1.Pod), make(chan error)
-		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 30, podChan, errChan)
+		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 10, podChan, errChan)
 
 		testPod := <-podChan
 		framework.Logf("Test pod running on %q", testPod.Spec.NodeName)
 
 		time.Sleep(5 * time.Second)
 
-		podClient := f.ClientSet.CoreV1().Pods("ovn-kubernetes")
+		podClient := f.ClientSet.CoreV1().Pods(ovnK8sNamespace)
 
 		podList, _ := podClient.List(context.Background(), metav1.ListOptions{})
 		podName := ""
 		for _, pod := range podList.Items {
-			if strings.HasPrefix(pod.Name, "ovnkube-master") {
+			if strings.HasPrefix(pod.Name, "ovnkube-master") && pod.Spec.NodeName == ovnKubeMasterNode {
 				podName = pod.Name
 				break
 			}
 		}
 
-		err := podClient.Delete(context.Background(), podName, metav1.DeleteOptions{})
-		framework.ExpectNoError(err, "should delete ovnkube-master pod")
+		err = podClient.Delete(context.Background(), podName, metav1.DeleteOptions{})
+		framework.ExpectNoError(err, fmt.Sprintf("should delete ovnkube-master pod %q", podName))
 		framework.Logf("Deleted ovnkube-master %q", podName)
+
+		framework.ExpectNoError(<-errChan)
+	})
+
+	ginkgo.It("should provide Internet connection continuously when all pods are killed on node running master instance of ovnkube-master.", func() {
+		ginkgo.By("Running container which tries to connect to 8.8.8.8 in a loop")
+
+		ovnKubeMasterNode, err := findOvnKubeMasterNode()
+		framework.ExpectNoError(err, fmt.Sprintf("unable to find current master of ovnkuber-master cluster %v", err))
+
+		podChan, errChan := make(chan *v1.Pod), make(chan error)
+		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 10, podChan, errChan)
+
+		testPod := <-podChan
+		framework.Logf("Test pod running on %q", testPod.Spec.NodeName)
+
+		time.Sleep(5 * time.Second)
+
+		podClient := f.ClientSet.CoreV1().Pods("")
+
+		podList, _ := podClient.List(context.Background(), metav1.ListOptions{})
+		for _, pod := range podList.Items {
+			if pod.Spec.NodeName == ovnKubeMasterNode && pod.Name != "connectivity-test-continuous" && pod.Name != "etcd-ovn-control-plane" {
+				framework.Logf("%q", pod.Namespace)
+				podClient2 := f.ClientSet.CoreV1().Pods(pod.Namespace)
+				err := podClient2.Delete(context.Background(), pod.Name, metav1.DeleteOptions{})
+				framework.ExpectNoError(err, fmt.Sprintf("should delete control plane pod %q", pod.Name))
+				framework.Logf("Deleted control plane pod %q", pod.Name)
+			}
+		}
+
+		framework.Logf(fmt.Sprintf("Killed all pods running on node %s", ovnKubeMasterNode))
+
+		framework.ExpectNoError(<-errChan)
+	})
+
+	ginkgo.It("should provide Internet connection continuously when all ovnkube-master pods are killed.", func() {
+		ginkgo.By("Running container which tries to connect to 8.8.8.8 in a loop")
+
+		podChan, errChan := make(chan *v1.Pod), make(chan error)
+		go checkContinuousConnectivity(f, "", "connectivity-test-continuous", "8.8.8.8", 53, 10, podChan, errChan)
+
+		testPod := <-podChan
+		framework.Logf("Test pod running on %q", testPod.Spec.NodeName)
+
+		time.Sleep(5 * time.Second)
+
+		podClient := f.ClientSet.CoreV1().Pods("")
+
+		podList, _ := podClient.List(context.Background(), metav1.ListOptions{})
+		for _, pod := range podList.Items {
+			if strings.HasPrefix(pod.Name, "ovnkube-master") {
+				framework.Logf("%q", pod.Namespace)
+				podClient2 := f.ClientSet.CoreV1().Pods(pod.Namespace)
+				err := podClient2.Delete(context.Background(), pod.Name, metav1.DeleteOptions{})
+				framework.ExpectNoError(err, fmt.Sprintf("should delete control plane pod %q", pod.Name))
+				framework.Logf("Deleted control plane pod %q", pod.Name)
+			}
+		}
+
+		framework.Logf("Killed all the ovnkube-master pods.")
 
 		framework.ExpectNoError(<-errChan)
 	})
@@ -433,7 +515,6 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 var _ = ginkgo.Describe("test e2e inter-node connectivity between worker nodes", func() {
 	const (
 		svcname          string = "inter-node-e2e"
-		ovnNs            string = "ovn-kubernetes"
 		ovnWorkerNode    string = "ovn-worker"
 		ovnWorkerNode2   string = "ovn-worker2"
 		ovnHaWorkerNode2 string = "ovn-control-plane2"
@@ -456,13 +537,13 @@ var _ = ginkgo.Describe("test e2e inter-node connectivity between worker nodes",
 		fieldSelectorHaFlag := fmt.Sprintf("--field-selector=spec.nodeName=%s", ovnHaWorkerNode2)
 
 		// Determine if the kind deployment is in HA mode or non-ha mode based on node naming
-		kubectlOut, err := framework.RunKubectl(ovnNs, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorFlag)
+		kubectlOut, err := framework.RunKubectl(ovnK8sNamespace, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorFlag)
 		if err != nil {
 			framework.Failf("Expected container %s running on %s error %v", ovnContainer, ovnWorkerNode, err)
 		}
 		if kubectlOut == "''" {
 			haMode = true
-			kubectlOut, err = framework.RunKubectl(ovnNs, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorHaFlag)
+			kubectlOut, err = framework.RunKubectl(ovnK8sNamespace, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorHaFlag)
 			if err != nil {
 				framework.Failf("Expected container %s running on %s error %v", ovnContainer, ovnHaWorkerNode2, err)
 			}
@@ -546,7 +627,6 @@ var _ = ginkgo.Describe("e2e egress IP validation", func() {
 		svcname          string = "egressip"
 		egressTargetNode string = "egressTargetNode"
 		egressIPYaml     string = "egressip.yml"
-		waitInterval            = 3 * time.Second
 	)
 
 	type node struct {
@@ -854,7 +934,6 @@ var _ = ginkgo.Describe("e2e non-vxlan external gateway and update validation", 
 		svcname             string = "multiple-novxlan-externalgw"
 		exGWRemoteIpAlt1    string = "10.249.3.1"
 		exGWRemoteIpAlt2    string = "10.249.4.1"
-		ovnNs               string = "ovn-kubernetes"
 		ovnWorkerNode       string = "ovn-worker"
 		ovnHaWorkerNode     string = "ovn-control-plane2"
 		ovnContainer        string = "ovnkube-node"
@@ -877,19 +956,19 @@ var _ = ginkgo.Describe("e2e non-vxlan external gateway and update validation", 
 		ciNetworkFlag = fmt.Sprintf("{{ .NetworkSettings.Networks.%s.IPAddress }}", ciNetworkName)
 		fieldSelectorControlFlag := fmt.Sprintf("--field-selector=spec.nodeName=%s", ovnControlNode)
 		// retrieve pod names from the running cluster
-		kubectlOut, err := framework.RunKubectl(ovnNs, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorControlFlag)
+		kubectlOut, err := framework.RunKubectl(ovnK8sNamespace, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorControlFlag)
 		if err != nil {
 			framework.Failf("Expected container %s running on %s error %v", ovnContainer, ovnControlNode, err)
 		}
 		// attempt to retrieve the pod name that will source the test in non-HA mode
-		kubectlOut, err = framework.RunKubectl(ovnNs, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorFlag)
+		kubectlOut, err = framework.RunKubectl(ovnK8sNamespace, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorFlag)
 		if err != nil {
 			framework.Failf("Expected container %s running on %s error %v", ovnContainer, ovnWorkerNode, err)
 		}
 		// attempt to retrieve the pod name that will source the test in HA mode
 		if kubectlOut == "''" {
 			haMode = true
-			kubectlOut, err = framework.RunKubectl(ovnNs, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorHaFlag)
+			kubectlOut, err = framework.RunKubectl(ovnK8sNamespace, "get", "pods", "-l", labelFlag, jsonFlag, fieldSelectorHaFlag)
 			if err != nil {
 				framework.Failf("Expected container %s running on %s error %v", ovnContainer, ovnHaWorkerNode, err)
 			}
