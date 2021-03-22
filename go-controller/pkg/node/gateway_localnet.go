@@ -238,7 +238,7 @@ func (l *localPortWatcher) addService(svc *kapi.Service) error {
 			}
 		}
 		klog.Infof("Adding iptables rules: %v for service: %v", iptRules, svc.Name)
-		if err := addIptRules(iptRules); err != nil {
+		if _, err := addIptRules(iptRules); err != nil {
 			klog.Errorf("Error adding iptables rules: %v for service: %v err: %v", iptRules, svc.Name, err)
 		}
 	}
@@ -298,7 +298,7 @@ func (l *localPortWatcher) deleteService(svc *kapi.Service) error {
 		}
 
 		klog.Infof("Deleting iptables rules: %v for service: %v", iptRules, svc.Name)
-		if err := delIptRules(iptRules); err != nil {
+		if _, err := delIptRules(iptRules); err != nil {
 			klog.Errorf("Error deleting iptables rules: %v for service: %v err: %v", iptRules, svc.Name, err)
 		}
 	}

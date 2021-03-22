@@ -36,6 +36,7 @@ type Interface interface {
 	GetEndpoint(namespace, name string) (*kapi.Endpoints, error)
 	CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error)
 	Events() kv1core.EventInterface
+	GetServices(namespace string) (*kapi.ServiceList, error)
 }
 
 // Kube is the structure object upon which the Interface is implemented
@@ -204,4 +205,9 @@ func (k *Kube) CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpo
 // Events returns events to use when creating an EventSinkImpl
 func (k *Kube) Events() kv1core.EventInterface {
 	return k.KClient.CoreV1().Events("")
+}
+
+// GetServices returns the list of all service objects from kubernetes
+func (k *Kube) GetServices(namespace string) (*kapi.ServiceList, error) {
+	return k.KClient.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{})
 }

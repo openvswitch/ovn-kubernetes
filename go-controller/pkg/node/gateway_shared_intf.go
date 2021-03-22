@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
@@ -14,6 +15,7 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	kapi "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
 )
@@ -367,6 +369,44 @@ func newSharedGateway(nodeName string, subnets []*net.IPNet, gwNextHops []net.IP
 	return gw, nil
 }
 
+func checkSharedGatewayIPTables(kClient kube.Interface, stopChan <-chan struct{}) {
+	for {
+		select {
+		case <-time.After(30 * time.Second):
+			warnings, err := initSharedGatewayIPTables()
+			for _, warning := range warnings {
+				klog.Warningf(warning)
+			}
+			if err != nil {
+				klog.Errorf("Failed to initialize ip table rules for shared gateway mode: %v", err)
+				return
+			}
+			namespaces, err := kClient.GetNamespaces(metav1.LabelSelector{})
+			if err != nil {
+				klog.Errorf("Error getting existing namespaces from kube API: %v", err)
+				return
+			}
+			for _, namespace := range namespaces.Items {
+				svcs, err := kClient.GetServices(namespace.Name)
+				if err != nil {
+					klog.Errorf("Error getting existing services in namespace %s from kube API: %v", namespace.Name, err)
+					return
+				}
+				warnings, err := verifySharedGatewayIptRules(svcs)
+				for _, warning := range warnings {
+					klog.Warningf(warning)
+				}
+				if err != nil {
+					klog.Errorf(err.Error())
+					return
+				}
+			}
+		case <-stopChan:
+			return
+		}
+	}
+}
+
 func newNodePortWatcher(patchPort, gwBridge, gwIntf string, ofm *openflowManager) (*nodePortWatcher, error) {
 	// Get ofport of patchPort
 	ofportPatch, stderr, err := util.RunOVSVsctl("--if-exists", "get",
@@ -389,7 +429,7 @@ func newNodePortWatcher(patchPort, gwBridge, gwIntf string, ofm *openflowManager
 	// of the node. If someone on the node is trying to access the NodePort service, those packets
 	// will not be processed by the OpenFlow flows, so we need to add iptable rules that DNATs the
 	// NodePortIP:NodePort to ClusterServiceIP:Port.
-	if err := initSharedGatewayIPTables(); err != nil {
+	if _, err := initSharedGatewayIPTables(); err != nil {
 		return nil, err
 	}
 

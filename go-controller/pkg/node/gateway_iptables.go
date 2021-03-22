@@ -39,16 +39,26 @@ type iptRule struct {
 	protocol iptables.Protocol
 }
 
-func addIptRules(rules []iptRule) error {
+func addIptRules(rules []iptRule) ([]string, error) {
 	var addErrors error
+	warnings := []string{}
 	for _, r := range rules {
-		klog.V(5).Infof("Adding rule in table: %s, chain: %s with args: \"%s\" for protocol: %v ", r.table, r.chain, strings.Join(r.args, " "), r.protocol)
 		ipt, _ := util.GetIPTablesHelper(r.protocol)
-		if err := ipt.NewChain(r.table, r.chain); err != nil {
-			klog.V(5).Infof("Chain: \"%s\" in table: \"%s\" already exists, skipping creation", r.table, r.chain)
+		if _, err := ipt.List(r.table, r.chain); err != nil {
+			klog.V(5).Infof("Creating chain: %s in table: %s for protocol: %v ", r.chain, r.table, r.protocol)
+			warnings = append(warnings, fmt.Sprintf("missing iptables chain %s in the %s table, adding it",
+				r.chain, r.table))
+			if err = ipt.NewChain(r.table, r.chain); err != nil {
+				klog.V(5).Infof("Chain: \"%s\" in table: \"%s\" already exists, skipping creation", r.table, r.chain)
+				return warnings, fmt.Errorf("failed to add iptables chain %s to the %s table: %v", r.chain, r.table, err)
+			}
 		}
 		exists, err := ipt.Exists(r.table, r.chain, r.args...)
 		if !exists && err == nil {
+			klog.V(5).Infof("Adding rule in table: %s, chain: %s with args: \"%s\" for protocol: %v ", r.table,
+				r.chain, strings.Join(r.args, " "), r.protocol)
+			warnings = append(warnings, fmt.Sprintf("missing iptables %s/%s rule %q, adding it",
+				r.chain, r.table, strings.Join(r.args, " ")))
 			err = ipt.Insert(r.table, r.chain, 1, r.args...)
 		}
 		if err != nil {
@@ -56,15 +66,19 @@ func addIptRules(rules []iptRule) error {
 				r.table, r.chain, strings.Join(r.args, " "), err)
 		}
 	}
-	return addErrors
+	return warnings, addErrors
 }
 
-func delIptRules(rules []iptRule) error {
+func delIptRules(rules []iptRule) ([]string, error) {
 	var delErrors error
+	warnings := []string{}
 	for _, r := range rules {
-		klog.V(5).Infof("Deleting rule in table: %s, chain: %s with args: \"%s\" for protocol: %v ", r.table, r.chain, strings.Join(r.args, " "), r.protocol)
 		ipt, _ := util.GetIPTablesHelper(r.protocol)
 		if exists, err := ipt.Exists(r.table, r.chain, r.args...); err == nil && exists {
+			klog.V(5).Infof("Deleting rule in table: %s, chain: %s with args: \"%s\" for protocol: %v ", r.table,
+				r.chain, strings.Join(r.args, " "), r.protocol)
+			warnings = append(warnings, fmt.Sprintf("extra iptables %s/%s rule %q, deleting it",
+				r.chain, r.table, strings.Join(r.args, " ")))
 			err := ipt.Delete(r.table, r.chain, r.args...)
 			if err != nil {
 				delErrors = errors.Wrapf(delErrors, "failed to delete iptables %s/%s rule %q: %v",
@@ -72,7 +86,7 @@ func delIptRules(rules []iptRule) error {
 			}
 		}
 	}
-	return delErrors
+	return warnings, delErrors
 }
 
 func getSharedGatewayInitRules(chain string, proto iptables.Protocol) []iptRule {
@@ -237,44 +251,51 @@ func getLocalGatewayNATRules(ifname string, cidr *net.IPNet) []iptRule {
 
 // initLocalGatewayNATRules sets up iptables rules for interfaces
 func initLocalGatewayNATRules(ifname string, cidr *net.IPNet) error {
-	return addIptRules(getLocalGatewayNATRules(ifname, cidr))
+	_, err := addIptRules(getLocalGatewayNATRules(ifname, cidr))
+	return err
 }
 
-func handleGatewayIPTables(iptCallback func(rules []iptRule) error, genGatewayChainRules func(chain string, proto iptables.Protocol) []iptRule) error {
+func handleGatewayIPTables(iptCallback func(rules []iptRule) ([]string, error), genGatewayChainRules func(chain string, proto iptables.Protocol) []iptRule) ([]string, error) {
+	warnings := []string{}
 	rules := make([]iptRule, 0)
 	for _, chain := range []string{iptableNodePortChain, iptableExternalIPChain} {
 		for _, proto := range clusterIPTablesProtocols() {
 			ipt, err := util.GetIPTablesHelper(proto)
 			if err != nil {
-				return err
+				return warnings, err
 			}
-			if err := ipt.NewChain("nat", chain); err != nil {
-				klog.V(5).Infof("Chain: \"%s\" in table: \"%s\" already exists, skipping creation", "nat", chain)
+			if _, err := ipt.List("nat", chain); err != nil {
+				warnings = append(warnings, fmt.Sprintf("missing iptables chain %s in the nat table, adding it", chain))
+				if err := ipt.NewChain("nat", chain); err != nil {
+					klog.V(5).Infof("Chain: \"%s\" in table: \"%s\" already exists, skipping creation", "nat", chain)
+				}
 			}
 			rules = append(rules, genGatewayChainRules(chain, proto)...)
 		}
 	}
-	if err := iptCallback(rules); err != nil {
-		return fmt.Errorf("failed to handle iptables rules %v: %v", rules, err)
+	ws, err := iptCallback(rules)
+	warnings = append(warnings, ws...)
+	if err != nil {
+		return warnings, fmt.Errorf("failed to handle iptables rules %v: %v", rules, err)
 	}
-	return nil
+	return warnings, nil
 }
 
-func initSharedGatewayIPTables() error {
-	if err := handleGatewayIPTables(addIptRules, getSharedGatewayInitRules); err != nil {
-		return err
+func initSharedGatewayIPTables() ([]string, error) {
+	warnings, err := handleGatewayIPTables(addIptRules, getSharedGatewayInitRules)
+	if err != nil {
+		return warnings, err
 	}
-	if err := handleGatewayIPTables(delIptRules, getLegacySharedGatewayInitRules); err != nil {
-		return err
-	}
-	return nil
+	w, err := handleGatewayIPTables(delIptRules, getLegacySharedGatewayInitRules)
+	warnings = append(warnings, w...)
+	return warnings, err
 }
 
 func initLocalGatewayIPTables() error {
-	if err := handleGatewayIPTables(addIptRules, getLocalGatewayInitRules); err != nil {
+	if _, err := handleGatewayIPTables(addIptRules, getLocalGatewayInitRules); err != nil {
 		return err
 	}
-	if err := handleGatewayIPTables(delIptRules, getLegacyLocalGatewayInitRules); err != nil {
+	if _, err := handleGatewayIPTables(delIptRules, getLegacyLocalGatewayInitRules); err != nil {
 		return err
 	}
 	return nil
@@ -301,7 +322,7 @@ func recreateIPTRules(table, chain string, keepIPTRules []iptRule) {
 			klog.Errorf("Error clearing chain: %s in table: %s, err: %v", chain, table, err)
 		}
 	}
-	if err := addIptRules(keepIPTRules); err != nil {
+	if _, err := addIptRules(keepIPTRules); err != nil {
 		klog.Error(err)
 	}
 }

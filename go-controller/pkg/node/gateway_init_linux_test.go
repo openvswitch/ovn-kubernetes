@@ -216,7 +216,7 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 			err = nodeAnnotator.Run()
 			Expect(err).NotTo(HaveOccurred())
 
-			go sharedGw.Run(stop, &sync.WaitGroup{})
+			sharedGw.Run(&kube.Kube{KClient: fakeClient.KubeClient}, stop, &sync.WaitGroup{})
 
 			// Verify the code moved eth0's IP address, MAC, and routes
 			// over to breth0

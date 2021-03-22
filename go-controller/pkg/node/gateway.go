@@ -23,7 +23,7 @@ import (
 type Gateway interface {
 	informer.ServiceAndEndpointsEventHandler
 	Init(factory.NodeWatchFactory) error
-	Run(<-chan struct{}, *sync.WaitGroup)
+	Run(kube.Interface, <-chan struct{}, *sync.WaitGroup)
 }
 
 type gateway struct {
@@ -157,12 +157,22 @@ func (g *gateway) Init(wf factory.NodeWatchFactory) error {
 	return nil
 }
 
-func (g *gateway) Run(stopChan <-chan struct{}, wg *sync.WaitGroup) {
+func (g *gateway) Run(kClient kube.Interface, stopChan <-chan struct{}, wg *sync.WaitGroup) {
 	if g.openflowManager != nil {
 		klog.Info("Spawning Conntrack Rule Check Thread")
 		wg.Add(1)
-		defer wg.Done()
-		g.openflowManager.Run(stopChan)
+		go func() {
+			defer wg.Done()
+			g.openflowManager.Run(stopChan)
+		}()
+	}
+	if g.nodePortWatcher != nil {
+		klog.Info("Spawning Gateway IPTable Rule Check Thread")
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			checkSharedGatewayIPTables(kClient, stopChan)
+		}()
 	}
 }
 
