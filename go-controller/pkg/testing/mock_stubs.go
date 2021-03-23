@@ -8,56 +8,6 @@ import (
 )
 
 // TODO: implement mock methods as we keep adding unit-tests
-// Get logical switch by name
-func (mock *MockOVNClient) LSGet(ls string) ([]*goovn.LogicalSwitch, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Create ls named SWITCH
-func (mock *MockOVNClient) LSAdd(ls string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Del ls and all its ports
-func (mock *MockOVNClient) LSDel(ls string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Get all logical switches
-func (mock *MockOVNClient) LSList() ([]*goovn.LogicalSwitch, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Add external_ids to logical switch
-func (mock *MockOVNClient) LSExtIdsAdd(ls string, external_ids map[string]string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Del external_ids from logical_switch
-func (mock *MockOVNClient) LSExtIdsDel(ls string, external_ids map[string]string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Link logical switch to router
-func (mock *MockOVNClient) LinkSwitchToRouter(lsw, lsp, lr, lrp, lrpMac string, networks []string, externalIds map[string]string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Add LB to LSW
-func (mock *MockOVNClient) LSLBAdd(ls string, lb string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Delete LB from LSW
-func (mock *MockOVNClient) LSLBDel(ls string, lb string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// List Load balancers for a LSW
-func (mock *MockOVNClient) LSLBList(ls string) ([]*goovn.LoadBalancer, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
 // Add ACL to entity (PORT_GROUP or LOGICAL_SWITCH)
 func (mock *MockOVNClient) ACLAddEntity(entityType goovn.EntityType, entity, direct, match, action string, priority int, external_ids map[string]string, logflag bool, meter string, severity string) (*goovn.OvnCommand, error) {
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
