@@ -550,26 +550,26 @@ func (wf *WatchFactory) GetNamespaces() ([]*kapi.Namespace, error) {
 	return namespaceLister.List(labels.Everything())
 }
 
-func (wf *WatchFactory) NodeInformer() cache.SharedIndexInformer {
-	return wf.informers[nodeType].inf
+func (wf *WatchFactory) NodeInformer() v1coreinformers.NodeInformer {
+	return wf.iFactory.Core().V1().Nodes()
 }
 
 // LocalPodInformer returns a shared Informer that may or may not only
 // return pods running on the local node.
-func (wf *WatchFactory) LocalPodInformer() cache.SharedIndexInformer {
-	return wf.informers[podType].inf
+func (wf *WatchFactory) LocalPodInformer() v1coreinformers.PodInformer {
+	return wf.PodInformer()
 }
 
-func (wf *WatchFactory) PodInformer() cache.SharedIndexInformer {
-	return wf.informers[podType].inf
+func (wf *WatchFactory) PodInformer() v1coreinformers.PodInformer {
+	return wf.iFactory.Core().V1().Pods()
 }
 
-func (wf *WatchFactory) NamespaceInformer() cache.SharedIndexInformer {
-	return wf.informers[namespaceType].inf
+func (wf *WatchFactory) NamespaceInformer() v1coreinformers.NamespaceInformer {
+	return wf.iFactory.Core().V1().Namespaces()
 }
 
-func (wf *WatchFactory) ServiceInformer() cache.SharedIndexInformer {
-	return wf.informers[serviceType].inf
+func (wf *WatchFactory) ServiceInformer() v1coreinformers.ServiceInformer {
+	return wf.iFactory.Core().V1().Services()
 }
 
 // noHeadlessServiceSelector is a LabelSelector added to the watch for

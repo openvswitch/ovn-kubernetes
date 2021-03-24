@@ -429,8 +429,8 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		nodeController, err := honode.NewNode(
 			n.Kube,
 			n.name,
-			n.watchFactory.NodeInformer(),
-			n.watchFactory.LocalPodInformer(),
+			n.watchFactory.NodeInformer().Informer(),
+			n.watchFactory.LocalPodInformer().Informer(),
 			informer.NewDefaultEventHandler,
 		)
 		if err != nil {
