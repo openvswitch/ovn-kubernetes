@@ -18,6 +18,7 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/controller/podset"
 	svccontroller "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/controller/services"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/controller/unidling"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/ipallocator"
@@ -208,6 +209,9 @@ type Controller struct {
 	// Map of pods that need to be retried, and the timestamp of when they last failed
 	retryPods     map[types.UID]retryEntry
 	retryPodsLock sync.Mutex
+
+	// podSetController supports NetworkPolicy
+	podSetController *podset.PodSetController
 }
 
 type retryEntry struct {
@@ -288,6 +292,7 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		ovnNBClient:              ovnNBClient,
 		ovnSBClient:              ovnSBClient,
 		clusterLBsUUIDs:          make([]string, 0),
+		podSetController:         podset.NewController(wf.PodInformer(), wf.NamespaceInformer()),
 	}
 }
 
@@ -306,7 +311,7 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 	// https://github.com/ovn-org/ovn-kubernetes/pull/859
 	oc.WatchNodes()
 
-	oc.WatchPods()
+	oc.WatchPods(wg)
 
 	// We use a level triggered controller to handle services if the cluster
 	// has endpoint slices enabled.
@@ -522,10 +527,20 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 }
 
 // WatchPods starts the watching of Pod resource and calls back the appropriate handler logic
-func (oc *Controller) WatchPods() {
+func (oc *Controller) WatchPods(wg *sync.WaitGroup) {
 	go func() {
 		// track the retryPods map and every 30 seconds check if any pods need to be retried
 		utilwait.Until(oc.iterateRetryPods, 30*time.Second, oc.stopChan)
+	}()
+
+	// start podSetController
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := oc.podSetController.Run(5, oc.stopChan)
+		if err != nil {
+			klog.Errorf("Error running PodSet controller: %v")
+		}
 	}()
 
 	start := time.Now()

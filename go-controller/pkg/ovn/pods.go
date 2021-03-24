@@ -505,6 +505,17 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 			portName, err)
 	}
 
+	// Add this pod to any peer sets for network policies synchronously
+	podIPs := make([]net.IP, 0, len(podIfAddrs))
+	for _, addr := range podIfAddrs {
+		podIPs = append(podIPs, addr.IP)
+	}
+	if err := oc.podSetController.AddPodDirectly(pod, podIPs); err != nil {
+		// failure here is OK; the PodSetController informer will also be triggered
+		// and that will retry on failure
+		klog.V(2).Infof("Failed to add pod to peer address sets in AddLogicalPort: %v", err)
+	}
+
 	// observe the pod creation latency metric.
 	metrics.RecordPodCreated(pod)
 	return nil

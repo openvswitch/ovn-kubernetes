@@ -6,6 +6,7 @@ import (
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/controller/podset"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -16,14 +17,34 @@ import (
 	utilnet "k8s.io/utils/net"
 )
 
+// gressPolicy is the object that tracks an individual IngressRule or EgressRule
+// in a NetworkPolicy. In other words, it's responisible for generating the "peer"
+// match of a single Rule in a policy. The "target" pods are tracked somewhere else.
+//
+// A rule has a set of ports and a set of peers. The ports apply equally to all peers.
+// Each peer can be either an IP block or a namespace + name selector.
+//
+// We use the PodSetController to actually map one-or-more selectors to an address set,
+// with the exception of namespace-only selectors, since we already maintain an address
+// set for that case.
+//
+// Hence, each gressPolicy *may* have a peerAddressSet, only if we need it. We also
+// have a set of peer address sets, which always includes our peerAddressSet (if it exists),
+// as well as any other AddressSets we might need (i.e. separately-managed namespace ones).
 type gressPolicy struct {
 	policyNamespace string
 	policyName      string
-	policyType      knet.PolicyType
-	idx             int
+
+	// the type (ingress, egress) of rule
+	policyType knet.PolicyType
+	idx        int
+
+	// name is a unique ID for keying purposes - also used for address sets
+	name string
 
 	// peerAddressSet points to the addressSet that holds all peer pod
-	// IP addresess.
+	// IP addresess. Lazily created, only if we need to maintain our own address set - because
+	// we have peers with pod or pod + namespace selectors
 	peerAddressSet addressset.AddressSet
 
 	// peerV4AddressSets has Address sets for all namespaces and pod selectors for IPv4
@@ -32,9 +53,10 @@ type gressPolicy struct {
 	peerV6AddressSets sets.String
 
 	// portPolicies represents all the ports to which traffic is allowed for
-	// the rule in question.
+	// the rules in question.
 	portPolicies []*portPolicy
 
+	// ipBlock is any peer ipBlocks
 	ipBlock []*knet.IPBlock
 }
 
@@ -72,17 +94,17 @@ func newGressPolicy(policyType knet.PolicyType, idx int, namespace, name string)
 		peerV4AddressSets: sets.String{},
 		peerV6AddressSets: sets.String{},
 		portPolicies:      make([]*portPolicy, 0),
+		name:              fmt.Sprintf("%s.%s.%s.%d", namespace, name, strings.ToLower(string(policyType)), idx),
 	}
 }
 
+// ensurePeerAddressSet creates the AddressSet that holds all peers with podselectors
 func (gp *gressPolicy) ensurePeerAddressSet(factory addressset.AddressSetFactory) error {
 	if gp.peerAddressSet != nil {
 		return nil
 	}
 
-	direction := strings.ToLower(string(gp.policyType))
-	asName := fmt.Sprintf("%s.%s.%s.%d", gp.policyNamespace, gp.policyName, direction, gp.idx)
-	as, err := factory.NewAddressSet(asName, nil)
+	as, err := factory.NewAddressSet(gp.name, nil)
 	if err != nil {
 		return err
 	}
@@ -121,28 +143,6 @@ func (gp *gressPolicy) deletePeerSvcVip(service *v1.Service) error {
 	ips := getSvcVips(service)
 
 	klog.Infof("Deleting service %s, possible VIPs: %v from gressPolicy's %s Address Set", service.Name, ips, gp.policyName)
-	return gp.peerAddressSet.DeleteIPs(ips)
-}
-
-func (gp *gressPolicy) addPeerPod(pod *v1.Pod) error {
-	if gp.peerAddressSet == nil {
-		return fmt.Errorf("peer AddressSet is nil, cannot add peer pod: %s for gressPolicy: %s",
-			pod.ObjectMeta.Name, gp.policyName)
-	}
-
-	ips, err := util.GetAllPodIPs(pod)
-	if err != nil {
-		return err
-	}
-
-	return gp.peerAddressSet.AddIPs(ips)
-}
-
-func (gp *gressPolicy) deletePeerPod(pod *v1.Pod) error {
-	ips, err := util.GetAllPodIPs(pod)
-	if err != nil {
-		return err
-	}
 	return gp.peerAddressSet.DeleteIPs(ips)
 }
 
@@ -449,8 +449,9 @@ func (gp *gressPolicy) localPodUpdateACL(oldl3Match, newl3Match, portGroupName s
 	}
 }
 
-func (gp *gressPolicy) destroy() error {
+func (gp *gressPolicy) destroy(psc *podset.PodSetController) error {
 	if gp.peerAddressSet != nil {
+		psc.RemovePodSet(gp.name)
 		if err := gp.peerAddressSet.Destroy(); err != nil {
 			return err
 		}
