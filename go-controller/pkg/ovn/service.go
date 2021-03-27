@@ -3,13 +3,14 @@ package ovn
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"net"
 	"reflect"
 	"strings"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	kapi "k8s.io/api/core/v1"
@@ -447,6 +448,8 @@ func (ovn *Controller) createService(service *kapi.Service) error {
 			}
 		}
 	}
+	// Update the service metrics
+	metrics.MetricExternalIPCountInService.WithLabelValues(service.Namespace, service.Name).Set(float64(len(service.Spec.ExternalIPs)))
 	return nil
 }
 
@@ -509,6 +512,8 @@ func (ovn *Controller) deleteService(service *kapi.Service) {
 			}
 		}
 	}
+	// Update the service metrics
+	metrics.MetricExternalIPCountInService.DeleteLabelValues(service.Namespace, service.Name)
 }
 
 // svcQualifiesForReject determines if a service should have a reject ACL on it when it has no endpoints
