@@ -2,12 +2,18 @@ package metrics
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
+	"k8s.io/klog/v2"
+	utilnet "k8s.io/utils/net"
+
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 )
 
 // ovnController Configuration metrics
@@ -279,6 +285,144 @@ func ovnControllerConfigurationMetricsUpdater() {
 	}
 }
 
+func ovnControllerServiceSubnetMetricsPublisher() {
+	cidrV4, cidrV6, v4Size, v6Size := getSubnetDetails(config.Kubernetes.ServiceCIDRs)
+	var metricServiceSubnet = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: MetricOvnkubeNamespace,
+		Subsystem: MetricOvnkubeSubsystemMaster,
+		Name:      "service_subnets",
+		Help: "A metric with a constant '1' value labeled by subnet that " +
+			"specifies the subnets used for service. subnet_v4 and subnet_v6 are " +
+			"used as labels for IPv4 and IPv6 subnets respectively. If any of the subnets " +
+			"is not configured, corresponding label will have a blank value.",
+	},
+		[]string{
+			"subnet_v4",
+			"subnet_v6",
+		},
+	)
+	ovnRegistry.MustRegister(metricServiceSubnet)
+	metricServiceSubnet.WithLabelValues(cidrV4, cidrV6).Set(1)
+
+	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Namespace: MetricOvnkubeNamespace,
+			Subsystem: MetricOvnkubeSubsystemMaster,
+			Name:      "service_subnet_size_ipv4",
+			Help:      "Size of IPv4 service subnet size. 0 for the value means IPv4 subnet is not configured.",
+		},
+		func() float64 {
+			// There will be only one v4 service subnet or a blank value. So we can do Atoi.
+			if subnetSize, err := strconv.Atoi(v4Size); err == nil {
+				return float64(subnetSize)
+			}
+			return 0
+		}))
+
+	ovnRegistry.MustRegister(prometheus.NewGaugeFunc(
+		prometheus.GaugeOpts{
+			Namespace: MetricOvnkubeNamespace,
+			Subsystem: MetricOvnkubeSubsystemMaster,
+			Name:      "service_subnet_size_ipv6",
+			Help:      "Size of IPv6 service subnet size. 0 for the value means IPv6 subnet is not configured.",
+		},
+		func() float64 {
+			// There will be only one v6 service subnet or a blank value. So we can do Atoi.
+			if subnetSize, err := strconv.Atoi(v6Size); err == nil {
+				return float64(subnetSize)
+			}
+			return 0
+		}))
+}
+
+func ovnControllerClusterSubnetMetricsPublisher() {
+	var cidrs []*net.IPNet
+
+	for _, subnet := range config.Default.ClusterSubnets {
+		cidrs = append(cidrs, subnet.CIDR)
+	}
+	cidrV4, cidrV6, v4Size, v6Size := getSubnetDetails(cidrs)
+
+	var metricClusterSubnet = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: MetricOvnkubeNamespace,
+		Subsystem: MetricOvnkubeSubsystemMaster,
+		Name:      "cluster_subnets",
+		Help: "A metric with a constant '1' value labeled by subnets that " +
+			"specifies the subnets used for cluster. subnets_v4 and subnets_v6 are " +
+			"used as labels for IPv4 and IPv6 subnets respectively. If any of the subnets " +
+			"is not configured, corresponding label will have a blank value. If there are multiple " +
+			"subnets configured per IP family, then label value will be comma separated.",
+	},
+		[]string{
+			"subnets_v4",
+			"subnets_v6",
+		},
+	)
+	ovnRegistry.MustRegister(metricClusterSubnet)
+	metricClusterSubnet.WithLabelValues(cidrV4, cidrV6).Set(1)
+
+	var metricClusterV4Prefix = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: MetricOvnkubeNamespace,
+		Subsystem: MetricOvnkubeSubsystemMaster,
+		Name:      "cluster_subnets_size_ipv4",
+		Help: "A metric with a constant '1' value labeled by prefix-length" +
+			"Value of the lable is the size of IPv4 cluster subnets. If there are multiple IPv4 " +
+			"subnets configured then lable value will be comma separated. Empty value for the label " +
+			"means IPv4 subnet is not configured.",
+	},
+		[]string{
+			"prefix-length",
+		},
+	)
+	ovnRegistry.MustRegister(metricClusterV4Prefix)
+	metricClusterSubnet.WithLabelValues(v4Size).Set(1)
+
+	var metricClusterV6Prefix = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: MetricOvnkubeNamespace,
+		Subsystem: MetricOvnkubeSubsystemMaster,
+		Name:      "cluster_subnets_size_ipv6",
+		Help: "A metric with a constant '1' value labeled by prefix-length" +
+			"Value of the lable is the size of IPv6 cluster subnets. If there are multiple IPv6 " +
+			"subnets configured then lable value will be comma separated. Empty value for the label " +
+			"means IPv6 subnet is not configured.",
+	},
+		[]string{
+			"prefix-length",
+		},
+	)
+	ovnRegistry.MustRegister(metricClusterV6Prefix)
+	metricClusterSubnet.WithLabelValues(v6Size).Set(1)
+}
+
+func getSubnetDetails(cidrs []*net.IPNet) (string, string, string, string) {
+	var cidrV4 = ""
+	var cidrV6 = ""
+	var v4Size = ""
+	var v6Size = ""
+
+	for _, cidr := range cidrs {
+		ones, _ := cidr.Mask.Size()
+		if utilnet.IsIPv6CIDR(cidr) {
+			if cidrV6 == "" {
+				cidrV6 = cidr.String()
+				v6Size = string(ones)
+			} else {
+				cidrV6 = cidrV6 + "," + cidr.String()
+				v6Size = v6Size + "," + string(ones)
+			}
+		} else {
+			if cidrV4 == "" {
+				cidrV4 = cidr.String()
+				v4Size = string(ones)
+			} else {
+				cidrV4 = cidrV4 + "," + cidr.String()
+				v4Size = v4Size + "," + string(ones)
+			}
+		}
+	}
+	return cidrV4, cidrV6, v4Size, v6Size
+}
+
 func getPortCount(portType string) float64 {
 	var portCount float64
 	stdout, stderr, err := util.RunOVSVsctl("--no-headings", "--data=bare", "--format=csv",
@@ -380,4 +524,9 @@ func RegisterOvnControllerMetrics() {
 	go ovnControllerConfigurationMetricsUpdater()
 	// ovn-controller coverage show metrics updater
 	go coverageShowMetricsUpdater(ovnController)
+	// Service metrics updater
+	go serviceMetricsUpdater()
+	// ovn-controller subnet configuration metrics publisher
+	ovnControllerServiceSubnetMetricsPublisher()
+	ovnControllerClusterSubnetMetricsPublisher()
 }

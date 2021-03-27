@@ -34,6 +34,8 @@ const (
 	ovnNorthd     = "ovn-northd"
 	ovnController = "ovn-controller"
 	ovsVswitchd   = "ovs-vswitchd"
+
+	delayInSeconds = 30
 )
 
 type metricDetails struct {

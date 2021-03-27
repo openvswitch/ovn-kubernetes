@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	metrics "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -277,6 +278,11 @@ func (ovn *Controller) syncServices(services []interface{}) {
 
 func (ovn *Controller) createService(service *kapi.Service) error {
 	klog.Infof("Creating service %s", service.Name)
+
+	//Obtain the service instance to update metrics
+	metricsService := metrics.GetServiceMetricsInstance()
+	metricsService.Increment(service)
+
 	if !util.IsClusterIPSet(service) {
 		klog.V(5).Infof("Skipping service create: No cluster IP for service %s found", service.Name)
 		return nil
@@ -469,6 +475,11 @@ func (ovn *Controller) updateService(oldSvc, newSvc *kapi.Service) error {
 
 func (ovn *Controller) deleteService(service *kapi.Service) {
 	klog.Infof("Deleting service %s", service.Name)
+
+	//Obtain the service instance to update metrics
+	metricsService := metrics.GetServiceMetricsInstance()
+	metricsService.Decrement(service)
+
 	if !util.IsClusterIPSet(service) {
 		return
 	}
