@@ -18,6 +18,7 @@ const (
 	ChassisType           string = "Chassis"
 	ACLType               string = "ACL"
 	ChassisPrivateType    string = "Chassis_Private"
+	LoadBalancerType      string = "Logical_Load_Balancer"
 )
 
 const (
@@ -80,6 +81,7 @@ func NewMockOVNClient(db string) *MockOVNClient {
 	mock.cache[LogicalSwitchType] = make(MockObjectCacheByName)
 	mock.cache[ChassisPrivateType] = make(MockObjectCacheByName)
 	mock.cache[LogicalRouterType] = make(MockObjectCacheByName)
+	mock.cache[LoadBalancerType] = make(MockObjectCacheByName)
 	return mock
 }
 

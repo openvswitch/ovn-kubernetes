@@ -57,31 +57,6 @@ func (mock *MockOVNClient) ASList() ([]*goovn.AddressSet, error) {
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
 }
 
-// Get LB with given name
-func (mock *MockOVNClient) LBGet(name string) ([]*goovn.LoadBalancer, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Add LB
-func (mock *MockOVNClient) LBAdd(name string, vipPort string, protocol string, addrs []string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Delete LB with given name
-func (mock *MockOVNClient) LBDel(name string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Update existing LB
-func (mock *MockOVNClient) LBUpdate(name string, vipPort string, protocol string, addrs []string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
-// Set selection fields for LB session affinity
-func (mock *MockOVNClient) LBSetSelectionFields(name string, selectionFields string) (*goovn.OvnCommand, error) {
-	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
-}
-
 // Add dhcp options for cidr and provided external_ids
 func (mock *MockOVNClient) DHCPOptionsAdd(cidr string, options map[string]string, external_ids map[string]string) (*goovn.OvnCommand, error) {
 	return nil, fmt.Errorf("method %s is not implemented yet", functionName())
