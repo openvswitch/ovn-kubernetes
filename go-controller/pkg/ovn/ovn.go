@@ -431,14 +431,14 @@ func podScheduled(pod *kapi.Pod) bool {
 	return pod.Spec.NodeName != ""
 }
 
-func (oc *Controller) recordPodEvent(addErr error, pod *kapi.Pod) {
+func (oc *Controller) recordPodEvent(e error, pod *kapi.Pod, eventType, reason string) {
 	podRef, err := ref.GetReference(scheme.Scheme, pod)
 	if err != nil {
 		klog.Errorf("Couldn't get a reference to pod %s/%s to post an event: '%v'",
 			pod.Namespace, pod.Name, err)
 	} else {
-		klog.V(5).Infof("Posting a %s event for Pod %s/%s", kapi.EventTypeWarning, pod.Namespace, pod.Name)
-		oc.recorder.Eventf(podRef, kapi.EventTypeWarning, "ErrorAddingLogicalPort", addErr.Error())
+		klog.V(5).Infof("Posting a %s event for Pod %s/%s", eventType, pod.Namespace, pod.Name)
+		oc.recorder.Eventf(podRef, eventType, reason, e.Error())
 	}
 }
 
@@ -505,7 +505,7 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 	if util.PodWantsNetwork(pod) && addPort {
 		if err := oc.addLogicalPort(pod); err != nil {
 			klog.Errorf(err.Error())
-			oc.recordPodEvent(err, pod)
+			oc.recordPodEvent(err, pod, kapi.EventTypeWarning, "ErrorAddingLogicalPort")
 			return false
 		}
 	} else {
@@ -517,7 +517,7 @@ func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
 		}
 		if err := oc.addPodExternalGW(pod); err != nil {
 			klog.Errorf(err.Error())
-			oc.recordPodEvent(err, pod)
+			oc.recordPodEvent(err, pod, kapi.EventTypeWarning, "ErrorAddingLogicalPort")
 			return false
 		}
 	}
@@ -928,6 +928,14 @@ func (oc *Controller) WatchNodes() {
 	oc.watchFactory.AddNodeHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
 			node := obj.(*kapi.Node)
+
+			// If there are pods on this newly added node, they must be left overs when the node was removed.
+			// log an event to indicate those pods won't function properly and should be deleted.
+			if oc.logicalPortCache.isPodOnNode(node.Name) {
+				oc.recorder.Eventf(node, kapi.EventTypeWarning, "ObsoletePodsOnNode",
+					"Obsolete Pods left over when node %s was deleted, need cleanup", node.Name)
+			}
+
 			if noHostSubnet := noHostSubnet(node); noHostSubnet {
 				err := oc.lsManager.AddNoHostSubnetNode(node.Name)
 				if err != nil {

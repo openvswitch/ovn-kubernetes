@@ -204,6 +204,33 @@ func (manager *logicalSwitchManager) AllocateIPs(nodeName string, ipnets []*net.
 	return nil
 }
 
+// AllocateIPs will block off IPs in the ipnets slice as already allocated
+// for a given switch
+func (manager *logicalSwitchManager) validateIPs(nodeName string, ipnets []*net.IPNet) error {
+	manager.RLock()
+	defer manager.RUnlock()
+	lsi, ok := manager.cache[nodeName]
+	if !ok || len(lsi.ipams) == 0 {
+		return fmt.Errorf("IPAM instances for node %s not found in the logical switch manager cache", nodeName)
+	}
+	for _, ipnet := range ipnets {
+		prefixLen, _ := ipnet.Mask.Size()
+		found := false
+		for _, ipam := range lsi.ipams {
+			cidr := ipam.CIDR()
+			ipamPrefixLen, _ := cidr.Mask.Size()
+			if cidr.Contains(ipnet.IP) && prefixLen == ipamPrefixLen {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("IP %s does not belong to any of the IPAM instances for node %s", ipnet.String(), nodeName)
+		}
+	}
+	return nil
+}
+
 // AllocateNextIPs allocates IP addresses from each of the host subnets
 // for a given switch
 func (manager *logicalSwitchManager) AllocateNextIPs(nodeName string) ([]*net.IPNet, error) {

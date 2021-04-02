@@ -34,12 +34,23 @@ func (oc *Controller) syncPods(pods []interface{}) {
 		}
 		annotations, err := util.UnmarshalPodAnnotation(pod.Annotations)
 		if podScheduled(pod) && util.PodWantsNetwork(pod) && err == nil {
+			// if the node that this Pod is scheduled on was deleted then added back while ovnkube-master
+			// was down, the pod's annotated IPs may not be in the range of the node's subnets. In that
+			// case, log a Pod event.
 			logicalPort := podLogicalPortName(pod)
-			expectedLogicalPorts[logicalPort] = true
-			if err = oc.lsManager.AllocateIPs(pod.Spec.NodeName, annotations.IPs); err != nil {
-				klog.Errorf("Couldn't allocate IPs: %s for pod: %s on node: %s"+
+			if err = oc.lsManager.validateIPs(pod.Spec.NodeName, annotations.IPs); err != nil {
+				err = fmt.Errorf("invalid Pod IPs: %s for pod: %s on node: %s"+
 					" error: %v", util.JoinIPNetIPs(annotations.IPs, " "), logicalPort,
 					pod.Spec.NodeName, err)
+			} else if err = oc.lsManager.AllocateIPs(pod.Spec.NodeName, annotations.IPs); err != nil {
+				err = fmt.Errorf("couldn't allocate IPs: %s for pod: %s on node: %s"+
+					" error: %v", util.JoinIPNetIPs(annotations.IPs, " "), logicalPort,
+					pod.Spec.NodeName, err)
+			}
+			if err != nil {
+				oc.recordPodEvent(err, pod, kapi.EventTypeWarning, "ErrorInvalidPodIPs")
+			} else {
+				expectedLogicalPorts[logicalPort] = true
 			}
 		}
 	}

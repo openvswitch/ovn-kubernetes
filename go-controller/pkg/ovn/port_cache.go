@@ -42,6 +42,19 @@ func (c *portCache) get(logicalPort string) (*lpInfo, error) {
 	return nil, fmt.Errorf("logical port %s not found in cache", logicalPort)
 }
 
+// check if there is any pod on the specified node (compare with the logicalSwitch name in the port cache)
+func (c *portCache) isPodOnNode(nodeName string) bool {
+	c.RLock()
+	defer c.RUnlock()
+
+	for _, lp := range c.cache {
+		if lp.logicalSwitch == nodeName {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *portCache) add(logicalSwitch, logicalPort, uuid string, mac net.HardwareAddr, ips []*net.IPNet) *lpInfo {
 	c.Lock()
 	defer c.Unlock()
