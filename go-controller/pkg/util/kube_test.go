@@ -562,7 +562,7 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{"10.0.0.2"}, 8080},
+			want: fakelbEnd{[]string{"10.0.0.2"}, 8080},
 		},
 		{
 			name: "slices with different IP family",
