@@ -433,10 +433,14 @@ func Test_getLbEndpoints(t *testing.T) {
 		svcPort v1.ServicePort
 		family  v1.IPFamily
 	}
+	type fakelbEnd struct {
+		IPs  []string
+		Port int32
+	}
 	tests := []struct {
 		name string
 		args args
-		want LbEndpoints
+		want fakelbEnd
 	}{
 		{
 			name: "empty slices",
@@ -449,7 +453,7 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{}, 0},
+			want: fakelbEnd{[]string{}, 0},
 		},
 		{
 			name: "slices with endpoints",
@@ -486,7 +490,7 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{"10.0.0.2"}, 80},
+			want: fakelbEnd{[]string{"10.0.0.2"}, 80},
 		},
 		{
 			name: "slices with different port name",
@@ -523,7 +527,7 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{}, 0},
+			want: fakelbEnd{[]string{}, 0},
 		},
 		{
 			name: "slices and service without port name",
@@ -595,7 +599,7 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{}, 0},
+			want: fakelbEnd{[]string{}, 0},
 		},
 		{
 			name: "multiples slices with duplicate endpoints",
@@ -655,12 +659,14 @@ func Test_getLbEndpoints(t *testing.T) {
 				},
 				family: v1.IPv4Protocol,
 			},
-			want: LbEndpoints{[]string{"10.0.0.2", "10.1.1.2", "10.2.2.2"}, 80},
+			want: fakelbEnd{[]string{"10.0.0.2", "10.1.1.2", "10.2.2.2"}, 80},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetLbEndpoints(tt.args.slices, tt.args.svcPort, tt.args.family); !reflect.DeepEqual(got, tt.want) {
+			tmpGot := GetLbEndpoints(tt.args.slices, tt.args.svcPort, tt.args.family)
+			got := fakelbEnd{tmpGot.IPs(), tmpGot.Port}
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("getLbEndpoints() = %v, want %v", got, tt.want)
 			}
 		})
