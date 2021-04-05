@@ -184,7 +184,7 @@ func unmarshalPodAnnotation(annotations map[string]string) (*PodAnnotation, erro
 	return podAnnotation, nil
 }
 
-func nodePortServiceSpecFrom(svcName string, httpPort, updPort, clusterHTTPPort, clusterUDPPort int, selector map[string]string) *v1.Service {
+func nodePortServiceSpecFrom(svcName string, httpPort, updPort, clusterHTTPPort, clusterUDPPort int, selector map[string]string, local v1.ServiceExternalTrafficPolicyType) *v1.Service {
 	preferDual := v1.IPFamilyPolicyPreferDualStack
 
 	res := &v1.Service{
@@ -197,8 +197,9 @@ func nodePortServiceSpecFrom(svcName string, httpPort, updPort, clusterHTTPPort,
 				{Port: int32(clusterHTTPPort), Name: "http", Protocol: v1.ProtocolTCP, TargetPort: intstr.FromInt(httpPort)},
 				{Port: int32(clusterUDPPort), Name: "udp", Protocol: v1.ProtocolUDP, TargetPort: intstr.FromInt(updPort)},
 			},
-			Selector:       selector,
-			IPFamilyPolicy: &preferDual,
+			Selector:              selector,
+			IPFamilyPolicy:        &preferDual,
+			ExternalTrafficPolicy: local,
 		},
 	}
 
@@ -228,6 +229,7 @@ func externalIPServiceSpecFrom(svcName string, httpPort, updPort, clusterHTTPPor
 
 // leverages a container running the netexec command to send a "hostname" request to a target running
 // netexec on the given target host / protocol / port
+// returns either the name of backend pod or "Timeout" if the curl request timed out
 func pokeEndpointHostname(clientContainer, protocol, targetHost string, targetPort int32) string {
 	ipPort := net.JoinHostPort("localhost", "80")
 	cmd := []string{"docker", "exec", clientContainer}
@@ -247,6 +249,30 @@ func pokeEndpointHostname(clientContainer, protocol, targetHost string, targetPo
 	return hostName
 }
 
+// leverages a container running the netexec command to send a "clientip" request to a target running
+// netexec on the given target host / protocol / port
+// returns either the src ip of the packet or "Timeout" if the curl request timed out
+func pokeEndpointClientIP(clientContainer, protocol, targetHost string, targetPort int32) string {
+	ipPort := net.JoinHostPort("localhost", "80")
+	cmd := []string{"docker", "exec", clientContainer}
+
+	// we leverage the dial command from netexec, that is already supporting multiple protocols
+	curlCommand := strings.Split(fmt.Sprintf("curl -g -q -s http://%s/dial?request=clientip&protocol=%s&host=%s&port=%d&tries=1",
+		ipPort,
+		protocol,
+		targetHost,
+		targetPort), " ")
+
+	cmd = append(cmd, curlCommand...)
+	res, err := runCommand(cmd...)
+	framework.ExpectNoError(err, "failed to run command on external container")
+	clientIP, err := parseNetexecResponse(res)
+	framework.ExpectNoError(err)
+	ip, _, err := net.SplitHostPort(clientIP)
+	framework.ExpectNoError(err, "failed to parse client ip:port")
+	return ip
+}
+
 func parseNetexecResponse(response string) (string, error) {
 	res := struct {
 		Responses []string `json:"responses"`
@@ -256,6 +282,9 @@ func parseNetexecResponse(response string) (string, error) {
 		return "", fmt.Errorf("failed to unmarshal curl response %s", response)
 	}
 	if len(res.Errors) > 0 {
+		if strings.Contains(strings.ToLower(res.Errors[0]), "timeout") {
+			return "Timeout", nil
+		}
 		return "", fmt.Errorf("curl response %s contains errors", response)
 	}
 	if len(res.Responses) == 0 {
