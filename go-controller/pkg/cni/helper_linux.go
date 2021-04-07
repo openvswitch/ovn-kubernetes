@@ -3,11 +3,13 @@
 package cni
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -101,6 +103,51 @@ func moveIfToNetns(ifname string, netns ns.NetNS) error {
 	}
 
 	return nil
+}
+
+func saveVFRepName(cid, repName string) error {
+	if err := os.MkdirAll(CNILibDir, 0700); err != nil {
+		return fmt.Errorf("failed to create the sriov data directory(%q): %v", CNILibDir, err)
+	}
+
+	// file name: "<cid>-default", default refers to default interface
+	s := []string{cid, "default"}
+	cRef := strings.Join(s, "-")
+
+	sIfInfo := &SriovInterfaceInfo{}
+	sIfInfo.VFRepName = repName
+
+	sIfInfoBytes, err := json.Marshal(sIfInfo)
+	if err != nil {
+		return fmt.Errorf("failed to marshal sriov interface info: %v", err)
+	}
+
+	path := filepath.Join(CNILibDir, cRef)
+	err = ioutil.WriteFile(path, sIfInfoBytes, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to write sriov data in the path(%q): %v", path, err)
+	}
+	return err
+}
+
+func readVFRepName(cid string) (string, error) {
+	// file name: "<cid>-default", default refers to default interface
+	s := []string{cid, "default"}
+	cRef := strings.Join(s, "-")
+
+	path := filepath.Join(CNILibDir, cRef)
+	sIfInfoBytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read sriov data in the path(%q): %v", path, err)
+	}
+
+	sIfInfo := &SriovInterfaceInfo{}
+	err = json.Unmarshal(sIfInfoBytes, sIfInfo)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal sriov interface info: %v", err)
+	}
+
+	return sIfInfo.VFRepName, err
 }
 
 func setupNetwork(link netlink.Link, ifInfo *PodInterfaceInfo) error {
@@ -222,6 +269,11 @@ func setupSriovInterface(netns ns.NetNS, containerID, ifName string, ifInfo *Pod
 	if err = renameLink(oldHostRepName, hostIface.Name); err != nil {
 		return nil, nil, fmt.Errorf("failed to rename %s to %s: %v", oldHostRepName, hostIface.Name, err)
 	}
+
+	if err = saveVFRepName(containerID, oldHostRepName); err != nil {
+		return nil, nil, fmt.Errorf("failed to save vf representor name: %v", err)
+	}
+
 	link, err := util.GetNetLinkOps().LinkByName(hostIface.Name)
 	if err != nil {
 		return nil, nil, err
@@ -425,6 +477,17 @@ func (pr *PodRequest) PlatformSpecificCleanup() error {
 	if err != nil && !strings.Contains(string(out), "no port named") {
 		// DEL should be idempotent; don't return an error just log it
 		klog.Warningf("Failed to delete OVS port %s: %v\n  %q", ifaceName, err, string(out))
+	}
+
+	if pr.CNIConf.DeviceID != "" {
+		var data string
+		if data, err = readVFRepName(pr.SandboxID); err != nil {
+			klog.Warningf("Failed to read sriov data: %v\n", err)
+		}
+		// rename the host VF representor
+		if err = renameLink(ifaceName, data); err != nil {
+			klog.Warningf("Failed to rename %s to %s: %v\n", ifaceName, data, err)
+		}
 	}
 
 	_ = clearPodBandwidth(pr.SandboxID)
