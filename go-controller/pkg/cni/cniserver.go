@@ -65,7 +65,7 @@ func NewCNIServer(rundir string, useOVSExternalIDs bool, factory factory.NodeWat
 		},
 		rundir:             rundir,
 		useOVSExternalIDs:  ovnPortBinding,
-		podLister:          corev1listers.NewPodLister(factory.LocalPodInformer().GetIndexer()),
+		podLister:          corev1listers.NewPodLister(factory.LocalPodInformer().Informer().GetIndexer()),
 		runningSandboxAdds: make(map[string]*PodRequest),
 	}
 	router.NotFoundHandler = http.HandlerFunc(http.NotFound)

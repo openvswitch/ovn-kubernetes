@@ -11,7 +11,6 @@ import (
 	"time"
 
 	goovn "github.com/ebay/go-ovn"
-	nettypes "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	hocontroller "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/controller"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
@@ -28,6 +27,7 @@ import (
 	egressfirewall "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
 
 	apiextension "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+
 	utilnet "k8s.io/utils/net"
 
 	kapi "k8s.io/api/core/v1"
@@ -35,14 +35,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/types"
-	utilwait "k8s.io/apimachinery/pkg/util/wait"
+
 	"k8s.io/client-go/informers"
+
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	ref "k8s.io/client-go/tools/reference"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
 
@@ -205,14 +207,12 @@ type Controller struct {
 	// v6HostSubnetsUsed keeps track of number of v6 subnets currently assigned to nodes
 	v6HostSubnetsUsed float64
 
-	// Map of pods that need to be retried, and the timestamp of when they last failed
-	retryPods     map[types.UID]retryEntry
-	retryPodsLock sync.Mutex
-}
-
-type retryEntry struct {
-	pod       *kapi.Pod
-	timeStamp time.Time
+	// podController
+	pods                               listers.PodLister
+	podsSynced                         cache.InformerSynced
+	podsQueue                          workqueue.RateLimitingInterface
+	podsRoutingAnnotationsChangedMutex sync.Mutex
+	podsRoutingAnnotationsChanged      map[string]*kapi.Pod
 }
 
 const (
@@ -277,17 +277,18 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 			allocatorMutex:        &sync.Mutex{},
 			allocator:             make(map[string]*egressNode),
 		},
-		loadbalancerClusterCache: make(map[kapi.Protocol]string),
-		multicastSupport:         config.EnableMulticast,
-		aclLoggingEnabled:        true,
-		serviceLBMap:             make(map[string]map[string]*loadBalancerConf),
-		serviceLBLock:            sync.Mutex{},
-		joinSwIPManager:          nil,
-		retryPods:                make(map[types.UID]retryEntry),
-		recorder:                 recorder,
-		ovnNBClient:              ovnNBClient,
-		ovnSBClient:              ovnSBClient,
-		clusterLBsUUIDs:          make([]string, 0),
+		loadbalancerClusterCache:           make(map[kapi.Protocol]string),
+		multicastSupport:                   config.EnableMulticast,
+		aclLoggingEnabled:                  true,
+		serviceLBMap:                       make(map[string]map[string]*loadBalancerConf),
+		serviceLBLock:                      sync.Mutex{},
+		joinSwIPManager:                    nil,
+		recorder:                           recorder,
+		ovnNBClient:                        ovnNBClient,
+		ovnSBClient:                        ovnSBClient,
+		clusterLBsUUIDs:                    make([]string, 0),
+		podsRoutingAnnotationsChangedMutex: sync.Mutex{},
+		podsRoutingAnnotationsChanged:      make(map[string]*kapi.Pod),
 	}
 }
 
@@ -306,7 +307,12 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 	// https://github.com/ovn-org/ovn-kubernetes/pull/859
 	oc.WatchNodes()
 
-	oc.WatchPods()
+	oc.initPodController(oc.watchFactory.PodInformer())
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		oc.runPodController(1, oc.stopChan)
+	}()
 
 	// We use a level triggered controller to handle services if the cluster
 	// has endpoint slices enabled.
@@ -370,7 +376,7 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 		klog.Infof("Starting unidling controller")
 		unidlingController := unidling.NewController(
 			oc.recorder,
-			oc.watchFactory.ServiceInformer(),
+			oc.watchFactory.ServiceInformer().Informer(),
 		)
 		wg.Add(1)
 		go func() {
@@ -440,127 +446,6 @@ func (oc *Controller) recordPodEvent(addErr error, pod *kapi.Pod) {
 		klog.V(5).Infof("Posting a %s event for Pod %s/%s", kapi.EventTypeWarning, pod.Namespace, pod.Name)
 		oc.recorder.Eventf(podRef, kapi.EventTypeWarning, "ErrorAddingLogicalPort", addErr.Error())
 	}
-}
-
-// iterateRetryPods checks if any outstanding pods have been waiting for 60 seconds of last known failure
-// then tries to re-add them if so
-func (oc *Controller) iterateRetryPods() {
-	oc.retryPodsLock.Lock()
-	defer oc.retryPodsLock.Unlock()
-	now := time.Now()
-	for uid, podEntry := range oc.retryPods {
-		pod := podEntry.pod
-		podTimer := podEntry.timeStamp.Add(time.Minute)
-		if now.After(podTimer) {
-			podDesc := fmt.Sprintf("[%s/%s/%s]", pod.UID, pod.Namespace, pod.Name)
-			klog.Infof("%s retry pod setup", podDesc)
-
-			if oc.ensurePod(nil, pod, true) {
-				klog.Infof("%s pod setup successful", podDesc)
-				delete(oc.retryPods, uid)
-			} else {
-				klog.Infof("%s setup retry failed; will try again later", podDesc)
-				oc.retryPods[uid] = retryEntry{pod, time.Now()}
-			}
-		}
-	}
-}
-
-// checkAndDeleteRetryPod deletes a specific entry from the map, if it existed, returns true
-func (oc *Controller) checkAndDeleteRetryPod(uid types.UID) bool {
-	oc.retryPodsLock.Lock()
-	defer oc.retryPodsLock.Unlock()
-	if _, ok := oc.retryPods[uid]; ok {
-		delete(oc.retryPods, uid)
-		return true
-	}
-	return false
-}
-
-// addRetryPod tracks a failed pod to retry later
-func (oc *Controller) addRetryPod(pod *kapi.Pod) {
-	oc.retryPodsLock.Lock()
-	defer oc.retryPodsLock.Unlock()
-	oc.retryPods[pod.UID] = retryEntry{pod, time.Now()}
-}
-
-func exGatewayAnnotationsChanged(oldPod, newPod *kapi.Pod) bool {
-	return oldPod.Annotations[routingNamespaceAnnotation] != newPod.Annotations[routingNamespaceAnnotation] ||
-		oldPod.Annotations[routingNetworkAnnotation] != newPod.Annotations[routingNetworkAnnotation] ||
-		oldPod.Annotations[bfdAnnotation] != newPod.Annotations[bfdAnnotation]
-}
-
-func networkStatusAnnotationsChanged(oldPod, newPod *kapi.Pod) bool {
-	return oldPod.Annotations[nettypes.NetworkStatusAnnot] != newPod.Annotations[nettypes.NetworkStatusAnnot]
-}
-
-// ensurePod tries to set up a pod. It returns success or failure; failure
-// indicates the pod should be retried later.
-func (oc *Controller) ensurePod(oldPod, pod *kapi.Pod, addPort bool) bool {
-	// Try unscheduled pods later
-	if !podScheduled(pod) {
-		return false
-	}
-
-	if util.PodWantsNetwork(pod) && addPort {
-		if err := oc.addLogicalPort(pod); err != nil {
-			klog.Errorf(err.Error())
-			oc.recordPodEvent(err, pod)
-			return false
-		}
-	} else {
-		if oldPod != nil && (exGatewayAnnotationsChanged(oldPod, pod) || networkStatusAnnotationsChanged(oldPod, pod)) {
-			// No matter if a pod is ovn networked, or host networked, we still need to check for exgw
-			// annotations. If the pod is ovn networked and is in update reschedule, addLogicalPort will take
-			// care of updating the exgw updates
-			oc.deletePodExternalGW(oldPod)
-		}
-		if err := oc.addPodExternalGW(pod); err != nil {
-			klog.Errorf(err.Error())
-			oc.recordPodEvent(err, pod)
-			return false
-		}
-	}
-
-	return true
-}
-
-// WatchPods starts the watching of Pod resource and calls back the appropriate handler logic
-func (oc *Controller) WatchPods() {
-	go func() {
-		// track the retryPods map and every 30 seconds check if any pods need to be retried
-		utilwait.Until(oc.iterateRetryPods, 30*time.Second, oc.stopChan)
-	}()
-
-	start := time.Now()
-	oc.watchFactory.AddPodHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			pod := obj.(*kapi.Pod)
-			if !oc.ensurePod(nil, pod, true) {
-				oc.addRetryPod(pod)
-			}
-		},
-		UpdateFunc: func(old, newer interface{}) {
-			oldPod := old.(*kapi.Pod)
-			pod := newer.(*kapi.Pod)
-			if !oc.ensurePod(oldPod, pod, oc.checkAndDeleteRetryPod(pod.UID)) {
-				// add back the failed pod
-				oc.addRetryPod(pod)
-				return
-			}
-		},
-		DeleteFunc: func(obj interface{}) {
-			pod := obj.(*kapi.Pod)
-			oc.checkAndDeleteRetryPod(pod.UID)
-			if !util.PodWantsNetwork(pod) {
-				oc.deletePodExternalGW(pod)
-				return
-			}
-			// deleteLogicalPort will take care of removing exgw for ovn networked pods
-			oc.deleteLogicalPort(pod)
-		},
-	}, oc.syncPods)
-	klog.Infof("Bootstrapping existing pods and cleaning stale pods took %v", time.Since(start))
 }
 
 // WatchServices starts the watching of Service resource and calls back the

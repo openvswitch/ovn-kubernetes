@@ -3,6 +3,7 @@ package kube
 import (
 	"context"
 	"encoding/json"
+
 	"k8s.io/klog/v2"
 
 	egressfirewall "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
@@ -36,6 +37,7 @@ type Interface interface {
 	GetEndpoint(namespace, name string) (*kapi.Endpoints, error)
 	CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error)
 	Events() kv1core.EventInterface
+	UpdatePod(pod *kapi.Pod) error
 }
 
 // Kube is the structure object upon which the Interface is implemented
@@ -204,4 +206,12 @@ func (k *Kube) CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpo
 // Events returns events to use when creating an EventSinkImpl
 func (k *Kube) Events() kv1core.EventInterface {
 	return k.KClient.CoreV1().Events("")
+}
+
+func (k *Kube) UpdatePod(pod *kapi.Pod) error {
+	_, err := k.KClient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
+	if err != nil {
+		klog.Errorf("Error in updating pod %s: %v", pod.Name, err)
+	}
+	return err
 }

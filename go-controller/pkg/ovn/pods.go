@@ -1,38 +1,228 @@
 package ovn
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	goovn "github.com/ebay/go-ovn"
+	nettypes "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/cni/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/ipallocator"
 	util "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	kapi "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	informers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
 )
+
+const (
+	podFinalizer  = "pod.finalizers.ovn.org"
+	maxPodRetries = 5
+)
+
+// ensurePod tries to set up a pod. It returns success or failure; failure
+// indicates the pod should be retried later.
+func (oc *Controller) ensurePod(pod *kapi.Pod) error {
+	// Try unscheduled pods later
+	if !podScheduled(pod) {
+		return fmt.Errorf("pod %s not scheduled", pod.Name)
+	}
+
+	if util.PodWantsNetwork(pod) {
+		if err := oc.addLogicalPort(pod); err != nil {
+			oc.recordPodEvent(err, pod)
+			return err
+		}
+	} else {
+		oc.podsRoutingAnnotationsChangedMutex.Lock()
+		if oldPod, ok := oc.podsRoutingAnnotationsChanged[pod.Name]; ok {
+			oc.deletePodExternalGW(oldPod)
+			delete(oc.podsRoutingAnnotationsChanged, pod.Name)
+		}
+		oc.podsRoutingAnnotationsChangedMutex.Unlock()
+
+		if err := oc.addPodExternalGW(pod); err != nil {
+			oc.recordPodEvent(err, pod)
+			return err
+		}
+	}
+	return nil
+}
+
+// initPodController initializes the Pod controller and *must* be called before
+// runPodController
+func (oc *Controller) initPodController(pods informers.PodInformer) {
+	oc.pods = pods.Lister()
+	oc.podsSynced = pods.Informer().HasSynced
+	oc.podsQueue = workqueue.NewNamedRateLimitingQueue(
+		workqueue.DefaultControllerRateLimiter(),
+		"pods",
+	)
+
+	pods.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(obj)
+			if err == nil {
+				oc.podsQueue.Add(key)
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			key, err := cache.MetaNamespaceKeyFunc(new)
+			if err == nil {
+				// FIXME: I'm not happy with doing it this way
+				// Ideally the exGW code would be idempotent
+				// Another solution would be to use one of the existing
+				// caches rather than adding a new one here
+
+				oldPod := old.(*kapi.Pod)
+				newPod := new.(*kapi.Pod)
+				klog.Info("CHECKING POD ANNOTATIONS")
+				if exGatewayAnnotationsChanged(oldPod, newPod) || networkStatusAnnotationsChanged(oldPod, newPod) {
+					klog.Info("POD ANNOTATIONS TOTALLY CHANGED!!!")
+					oc.podsRoutingAnnotationsChangedMutex.Lock()
+					defer oc.podsRoutingAnnotationsChangedMutex.Unlock()
+					oc.podsRoutingAnnotationsChanged[oldPod.Name] = oldPod
+				}
+
+				// skip deletes we have already processed
+				if (!newPod.DeletionTimestamp.IsZero()) && !podHasFinalizer(newPod) {
+					return
+				}
+
+				oc.podsQueue.Add(key)
+			}
+		},
+		DeleteFunc: func(obj interface{}) {
+			// we don't need to worry about deletes because they
+			// will arrive as updates as we have our finalizer added
+		},
+	})
+}
+
+func (oc *Controller) runPodController(threadiness int, stopCh <-chan struct{}) {
+	// don't let panics crash the process
+	defer utilruntime.HandleCrash()
+
+	klog.Infof("Starting Pod Controller")
+
+	// wait for your caches to fill before starting your work
+	if !cache.WaitForCacheSync(stopCh, oc.podsSynced) {
+		return
+	}
+
+	// run the repair controller
+	klog.Infof("Repairing Pods")
+	oc.repairPods()
+
+	// start up your worker threads based on threadiness.  Some controllers
+	// have multiple kinds of workers
+	wg := &sync.WaitGroup{}
+	for i := 0; i < threadiness; i++ {
+		wg.Add(1)
+		// runWorker will loop until "something bad" happens.  The .Until will
+		// then rekick the worker after one second
+		go func() {
+			defer wg.Done()
+			wait.Until(oc.runPodWorker, time.Second, stopCh)
+		}()
+	}
+
+	// wait until we're told to stop
+	<-stopCh
+
+	klog.Infof("Shutting down Pod controller")
+	// make sure the work queue is shutdown which will trigger workers to end
+	oc.podsQueue.ShutDown()
+	// wait for workers to finish
+	wg.Wait()
+}
+
+func (oc *Controller) runPodWorker() {
+	// hot loop until we're told to stop.  processNextWorkItem will
+	// automatically wait until there's work available, so we don't worry
+	// about secondary waits
+	for oc.processNextPodWorkItem() {
+	}
+}
+
+// processNextPodWorkItem deals with one key off the queue.  It returns false
+// when it's time to quit.
+func (oc *Controller) processNextPodWorkItem() bool {
+	// pull the next work item from queue.  It should be a key we use to lookup
+	// something in a cache
+	key, quit := oc.podsQueue.Get()
+	if quit {
+		return false
+	}
+	// you always have to indicate to the queue that you've completed a piece of
+	// work
+	defer oc.podsQueue.Done(key)
+
+	// do your work on the key.  This method will contains your "do stuff" logic
+	err := oc.syncPodHandler(key.(string))
+	if err == nil {
+		// if you had no error, tell the queue to stop tracking history for your
+		// key. This will reset things like failure counts for per-item rate
+		// limiting
+		oc.podsQueue.Forget(key)
+		return true
+	}
+
+	// there was a failure so be sure to report it.  This method allows for
+	// pluggable error handling which can be used for things like
+	// cluster-monitoring
+	utilruntime.HandleError(fmt.Errorf("%v failed with : %v", key, err))
+
+	// since we failed, we should requeue the item to work on later.
+	// but only if we've not exceeded max retries. This method
+	// will add a backoff to avoid hotlooping on particular items
+	// (they're probably still not going to work right away) and overall
+	// controller protection (everything I've done is broken, this controller
+	// needs to calm down or it can starve other useful work) cases.
+	if oc.podsQueue.NumRequeues(key) < maxPodRetries {
+		oc.podsQueue.AddRateLimited(key)
+		return true
+	}
+
+	// if we've exceeded MaxRetries, remove the item from the queue
+	oc.podsQueue.Forget(key)
+
+	return true
+}
 
 // Builds the logical switch port name for a given pod.
 func podLogicalPortName(pod *kapi.Pod) string {
 	return pod.Namespace + "_" + pod.Name
 }
 
-func (oc *Controller) syncPods(pods []interface{}) {
+func (oc *Controller) repairPods() {
 	// get the list of logical switch ports (equivalent to pods)
 	expectedLogicalPorts := make(map[string]bool)
-	for _, podInterface := range pods {
-		pod, ok := podInterface.(*kapi.Pod)
-		if !ok {
-			klog.Errorf("Spurious object in syncPods: %v", podInterface)
-			continue
-		}
-		annotations, err := util.UnmarshalPodAnnotation(pod.Annotations)
+	klog.Infof("Getting pod list")
+	pods, err := oc.pods.List(labels.Everything())
+	// as the this is called after the cache has synced we shouldn't hit this
+	if err != nil {
+		klog.Error(err)
+		utilruntime.HandleError(err)
+	}
+	for _, pod := range pods {
+		annotations, err := util.UnmarshalPodAnnotation(pod.GetAnnotations())
 		if podScheduled(pod) && util.PodWantsNetwork(pod) && err == nil {
 			logicalPort := podLogicalPortName(pod)
 			expectedLogicalPorts[logicalPort] = true
@@ -44,6 +234,7 @@ func (oc *Controller) syncPods(pods []interface{}) {
 		}
 	}
 
+	klog.Info("Getting logical ports from OVN")
 	// get the list of logical ports from OVN
 	output, stderr, err := util.RunOVNNbctl("--data=bare", "--no-heading",
 		"--columns=name", "find", "logical_switch_port", "external_ids:pod=true")
@@ -69,9 +260,49 @@ func (oc *Controller) syncPods(pods []interface{}) {
 	}
 }
 
-func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
+// sync pod handler brings the pod resource in sync
+func (oc *Controller) syncPodHandler(key string) error {
+	klog.Infof("Syncing %s", key)
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		return err
+	}
+	pod, err := oc.pods.Pods(namespace).Get(name)
+	if err != nil && !apierrors.IsNotFound(err) {
+		// It´s unlikely that we have an error different that "Not Found Object"
+		// because we are getting the object from the informer´s cache
+		return err
+	}
+	// Check if pod has a deletion timestamp set
+	if !pod.GetDeletionTimestamp().IsZero() {
+		// If the deletion timestamp is non-zero, we should process
+		// our delete then remove the finalizer
+		if err := oc.deleteLogicalPort(pod); err != nil {
+			return err
+		}
+		// remove our finalizer
+		if err := deletePodFinalizer(oc.client, pod); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// this wasn't a delete, so we run ensurePod
+	if err := oc.ensurePod(pod); err != nil {
+		return err
+	}
+
+	if !podHasFinalizer(pod) {
+		if err := addPodFinalizer(oc.client, pod); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) error {
 	if pod.Spec.HostNetwork {
-		return
+		return nil
 	}
 
 	podDesc := pod.Namespace + "/" + pod.Name
@@ -85,35 +316,35 @@ func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
 		// is not readded into the cache. Delete logical switch port anyway.
 		err = util.OvnNBLSPDel(oc.ovnNBClient, logicalPort)
 		if err != nil {
-			klog.Errorf(err.Error())
+			return err
 		}
 
 		// Even if the port is not in the cache, IPs annotated in the Pod annotation may already be allocated,
 		// need to release them to avoid leakage.
 		logicalSwitch := pod.Spec.NodeName
 		if logicalSwitch != "" {
-			annotation, err := util.UnmarshalPodAnnotation(pod.Annotations)
+			annotation, err := util.UnmarshalPodAnnotation(pod.GetAnnotations())
 			if err == nil {
 				podIfAddrs := annotation.IPs
 				_ = oc.lsManager.ReleaseIPs(logicalSwitch, podIfAddrs)
 			}
 		}
-		return
+		return nil
 	}
 
 	// FIXME: if any of these steps fails we need to stop and try again later...
 
 	if err := oc.deletePodFromNamespace(pod.Namespace, portInfo); err != nil {
-		klog.Errorf(err.Error())
+		return err
 	}
 
 	err = util.OvnNBLSPDel(oc.ovnNBClient, logicalPort)
 	if err != nil {
-		klog.Errorf(err.Error())
+		return err
 	}
 
 	if err := oc.lsManager.ReleaseIPs(portInfo.logicalSwitch, portInfo.ips); err != nil {
-		klog.Errorf(err.Error())
+		return err
 	}
 
 	if config.Gateway.DisableSNATMultipleGWs {
@@ -122,6 +353,7 @@ func (oc *Controller) deleteLogicalPort(pod *kapi.Pod) {
 	oc.deleteGWRoutesForPod(pod.Namespace, portInfo.ips)
 	oc.deletePodExternalGW(pod)
 	oc.logicalPortCache.remove(logicalPort)
+	return nil
 }
 
 func (oc *Controller) waitForNodeLogicalSwitch(nodeName string) error {
@@ -297,7 +529,7 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 		klog.Infof("LSP already exists for port: %s", portName)
 	}
 
-	annotation, err := util.UnmarshalPodAnnotation(pod.Annotations)
+	annotation, err := util.UnmarshalPodAnnotation(pod.GetAnnotations())
 
 	// the IPs we allocate in this function need to be released back to the
 	// IPAM pool if there is some error in any step of addLogicalPort past
@@ -334,9 +566,8 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 		if err = oc.lsManager.AllocateIPs(logicalSwitch, podIfAddrs); err != nil && err != ipallocator.ErrAllocated {
 			return fmt.Errorf("unable to ensure IPs allocated for already annotated pod: %s, IPs: %s, error: %v",
 				pod.Name, util.JoinIPNetIPs(podIfAddrs, " "), err)
-		} else {
-			needsIP = false
 		}
+		needsIP = false
 	}
 
 	if needsIP {
@@ -409,8 +640,8 @@ func (oc *Controller) addLogicalPort(pod *kapi.Pod) (err error) {
 
 		klog.V(5).Infof("Annotation values: ip=%v ; mac=%s ; gw=%s\nAnnotation=%s",
 			podIfAddrs, podMac, podAnnotation.Gateways, marshalledAnnotation)
-		if err = oc.kube.SetAnnotationsOnPod(pod, marshalledAnnotation); err != nil {
-			return fmt.Errorf("failed to set annotation on pod %s: %v", pod.Name, err)
+		if err := patchPodAnnotationsAndFinalizers(oc.client, pod, marshalledAnnotation); err != nil {
+			return fmt.Errorf("error creating pod network annotation: %v", err)
 		}
 		releaseIPs = false
 	}
@@ -557,4 +788,130 @@ func (oc *Controller) getPortAddresses(nodeName, portName string) (net.HardwareA
 		}
 	}
 	return podMac, podIPNets, nil
+}
+
+func exGatewayAnnotationsChanged(oldPod, newPod *kapi.Pod) bool {
+	return oldPod.Annotations[routingNamespaceAnnotation] != newPod.Annotations[routingNamespaceAnnotation] ||
+		oldPod.Annotations[routingNetworkAnnotation] != newPod.Annotations[routingNetworkAnnotation] ||
+		oldPod.Annotations[bfdAnnotation] != newPod.Annotations[bfdAnnotation]
+}
+
+func networkStatusAnnotationsChanged(oldPod, newPod *kapi.Pod) bool {
+	return oldPod.Annotations[nettypes.NetworkStatusAnnot] != newPod.Annotations[nettypes.NetworkStatusAnnot]
+}
+
+type patch struct {
+	Operation string      `json:"op"`
+	Path      string      `json:"path"`
+	Value     interface{} `json:"value"`
+}
+
+func patchPodAnnotationsAndFinalizers(kClient kubernetes.Interface, pod *kapi.Pod, annotations map[string]string) error {
+	var err error
+	var patchData []byte
+	patch := []patch{
+		{
+			Operation: "add",
+			Path:      "/metadata/annotations",
+			Value:     annotations,
+		},
+
+		{
+			Operation: "add",
+			Path:      "/metadata/finalizers",
+			Value:     []string{podFinalizer},
+		},
+	}
+
+	podDesc := pod.Namespace + "/" + pod.Name
+	klog.Infof("Setting annotations %v on pod %s", annotations, podDesc)
+	patchData, err = json.Marshal(&patch)
+	if err != nil {
+		klog.Errorf("Error in setting annotations on pod %s: %v", podDesc, err)
+		return err
+	}
+
+	_, err = kClient.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, k8stypes.JSONPatchType, patchData, metav1.PatchOptions{})
+	if err != nil {
+		klog.Errorf("Error in setting annotation on pod %s: %v", podDesc, err)
+		return err
+	}
+	// ensure finalizer is added to the object just in case something else tries to act on it
+	addFinalizerToPod(pod)
+
+	return nil
+}
+
+func deletePodFinalizer(kClient kubernetes.Interface, pod *kapi.Pod) error {
+	var err error
+	var patchData []byte
+
+	patch := []patch{
+		{
+			Operation: "remove",
+			Path:      "/metadata/finalizers",
+			Value:     nil,
+		},
+	}
+
+	podDesc := pod.Namespace + "/" + pod.Name
+	klog.Infof("Removing finalizers %v on pod %s", podFinalizer, podDesc)
+	patchData, err = json.Marshal(&patch)
+	if err != nil {
+		klog.Error(err)
+		return err
+	}
+
+	_, err = kClient.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, k8stypes.JSONPatchType, patchData, metav1.PatchOptions{})
+	if err != nil {
+		klog.Error(err)
+	}
+	return err
+}
+
+func addPodFinalizer(kClient kubernetes.Interface, pod *kapi.Pod) error {
+	var err error
+	var patchData []byte
+
+	patch := []patch{
+		{
+			Operation: "add",
+			Path:      "/metadata/finalizers",
+			Value:     []string{podFinalizer},
+		},
+	}
+
+	podDesc := pod.Namespace + "/" + pod.Name
+	klog.Infof("Adding finalizer %v on pod %s", podFinalizer, podDesc)
+	patchData, err = json.Marshal(&patch)
+	if err != nil {
+		klog.Error(err)
+		return err
+	}
+
+	_, err = kClient.CoreV1().Pods(pod.Namespace).Patch(context.TODO(), pod.Name, k8stypes.JSONPatchType, patchData, metav1.PatchOptions{})
+	if err != nil {
+		klog.Error(err)
+		return err
+	}
+	// ensure finalizer is added to the object just in case something else tries to act on it
+	addFinalizerToPod(pod)
+	return nil
+}
+
+func podHasFinalizer(pod *kapi.Pod) bool {
+	hasFinalizer := false
+	for _, f := range pod.GetFinalizers() {
+		if f == podFinalizer {
+			hasFinalizer = true
+		}
+	}
+	return hasFinalizer
+}
+
+func addFinalizerToPod(pod *kapi.Pod) {
+	if podHasFinalizer(pod) {
+		return
+	}
+	pod.SetFinalizers(append(pod.GetFinalizers(), podFinalizer))
 }

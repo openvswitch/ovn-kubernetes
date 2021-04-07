@@ -3,6 +3,7 @@ package factory
 import (
 	kapi "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	v1coreinformers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -39,8 +40,8 @@ type NodeWatchFactory interface {
 	AddPodHandler(handlerFuncs cache.ResourceEventHandler, processExisting func([]interface{})) *Handler
 	RemovePodHandler(handler *Handler)
 
-	NodeInformer() cache.SharedIndexInformer
-	LocalPodInformer() cache.SharedIndexInformer
+	NodeInformer() v1coreinformers.NodeInformer
+	LocalPodInformer() v1coreinformers.PodInformer
 }
 
 type Shutdownable interface {
