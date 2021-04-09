@@ -101,6 +101,7 @@ func newKubernetesRestConfig(conf *config.KubernetesConfig) (*rest.Config, error
 // NewKubernetesClientset creates a Kubernetes clientset from a KubernetesConfig
 func NewKubernetesClientset(conf *config.KubernetesConfig) (*kubernetes.Clientset, error) {
 	kconfig, err := newKubernetesRestConfig(conf)
+	klog.Errorf("KEYWORD: %+v\n", kconfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create kubernetes rest config, err: %v", err)
 	}

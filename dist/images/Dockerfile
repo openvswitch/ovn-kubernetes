@@ -55,7 +55,7 @@ RUN mkdir -p /var/run/openvswitch
 # Built in ../../go_controller, then the binaries are copied here.
 # put things where they are in the rpm
 RUN mkdir -p /usr/libexec/cni/
-COPY ovnkube ovn-kube-util ovndbchecker /usr/bin/
+COPY ovnkube ovnkube-admission-controller ovn-kube-util ovndbchecker /usr/bin/
 COPY ovn-k8s-cni-overlay /usr/libexec/cni/ovn-k8s-cni-overlay
 
 # ovnkube.sh is the entry point. This script examines environment

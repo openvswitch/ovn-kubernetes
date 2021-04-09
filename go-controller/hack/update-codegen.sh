@@ -56,12 +56,7 @@ echo "Generating CRDs"
 mkdir -p _output/crds
 controller-gen crd:crdVersions="v1"  paths=./pkg/crd/... output:crd:dir=_output/crds
 echo "Editing egressFirewall CRD"
-## We desire that only egressFirewalls with the name "default" are accepted by the apiserver. The only
-## way that we can put a pattern for validation on the name of the object which is embedded in
-## metav1.ObjectMeta it is required that we add it after the generation of the CRD.
-sed -i -e':begin;$!N;s/.*metadata:\n.*type: object/&\n            properties:\n              name:\n                type: string\n                pattern: ^default$/;P;D' \
-	_output/crds/k8s.ovn.org_egressfirewalls.yaml
-## It is also required that we restrict the number of properties on the 'to' section of the egressfirewall
+## tt is required that we restrict the number of properties on the 'to' section of the egressfirewall
 ## so that either 'dnsName' or 'cidrSelector is set in the crd and currently kubebuilder does not support
 ## adding validation to objects only to the fields
 sed -i -e ':begin;$!N;s/                          type: string\n.*type: object/&\n                      minProperties: 1\n                      maxProperties: 1/;P;D' \
