@@ -5,15 +5,19 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressfirewallapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1"
+	nodednsinfoapi "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1"
+	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	kapi "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	utilnet "k8s.io/utils/net"
@@ -24,6 +28,34 @@ const (
 	egressFirewallAddError         = "EgressFirewall Rules not correctly added"
 	egressFirewallUpdateError      = "EgressFirewall Rules not correctly updated"
 )
+
+// egressfirewallDNSInfo stores information about the dnsNames used by egressfirewalls
+// this information applies to all egressfirewalls in all namespaces
+type egressfirewallDNSInformation struct {
+	sync.Mutex
+	//map of dnsNames to relevant information
+	dnsNameInfo map[string]*dnsInformation
+}
+
+func newEgressFirewallDNSInfo() egressfirewallDNSInformation {
+	return egressfirewallDNSInformation{
+		dnsNameInfo: make(map[string]*dnsInformation),
+	}
+}
+
+//dnsInformation stores information relating to a dns names
+type dnsInformation struct {
+	// the namespaces that have egressfirewall rules relating to this dnsName
+	// using a map of empty structs becuase the typical operation is search
+	Namespaces sets.String
+	// as is an addressSet of all the IPs the dnsName resolves to accross all nodes
+	as addressset.AddressSet
+
+	// ipNodes is a map of sets it relates the tuple ipAddress and nodeName, the existance
+	// of the tuple means that the dnsName this object is assocaited with resolves to
+	// the given IP address on specified the node.
+	ipNodes map[string]sets.String
+}
 
 type egressFirewall struct {
 	name        string
@@ -178,6 +210,7 @@ func (oc *Controller) syncEgressFirewall(egressFirwalls []interface{}) {
 
 func (oc *Controller) addEgressFirewall(egressFirewall *egressfirewallapi.EgressFirewall) error {
 	klog.Infof("Adding egressFirewall %s in namespace %s", egressFirewall.Name, egressFirewall.Namespace)
+
 	nsInfo, err := oc.waitForNamespaceLocked(egressFirewall.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to wait for namespace %s event (%v)",
@@ -277,22 +310,38 @@ func (oc *Controller) updateEgressFirewall(oldEgressFirewall, newEgressFirewall 
 
 func (oc *Controller) deleteEgressFirewall(egressFirewall *egressfirewallapi.EgressFirewall) error {
 	klog.Infof("Deleting egress Firewall %s in namespace %s", egressFirewall.Name, egressFirewall.Namespace)
-	deleteDNS := false
 
 	nsInfo := oc.getNamespaceLocked(egressFirewall.Namespace)
-	if nsInfo != nil {
-		// clear it so an error does not prevent future egressFirewalls
-		for _, rule := range nsInfo.egressFirewall.egressRules {
-			if len(rule.to.dnsName) > 0 {
-				deleteDNS = true
-				break
-			}
-		}
+	defer func() {
+		// clear the nsInfo.egressfirewall so future egressFirewall opts are not rejected due to there already being one
 		nsInfo.egressFirewall = nil
 		nsInfo.Unlock()
-	}
-	if deleteDNS {
-		oc.egressFirewallDNS.Delete(egressFirewall.Namespace)
+	}()
+	if nsInfo != nil {
+		for _, rule := range nsInfo.egressFirewall.egressRules {
+			// using an anonymous function in order to defer the unlock
+			err := func() error {
+				if len(rule.to.dnsName) > 0 {
+					oc.egressfirewallDNSInfo.Lock()
+					defer oc.egressfirewallDNSInfo.Unlock()
+
+					oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName].Namespaces.Delete(egressFirewall.Namespace)
+
+					if oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName].Namespaces.Len() == 0 {
+						// there is no namespace using the egressfirewall rule so it is safe to delete the addressSet
+						err := oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName].as.Destroy()
+						if err != nil {
+							return err
+						}
+						delete(oc.egressfirewallDNSInfo.dnsNameInfo, rule.to.dnsName)
+					}
+				}
+				return nil
+			}()
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return oc.deleteEgressFirewallRules(egressFirewall.Namespace)
@@ -327,12 +376,35 @@ func (oc *Controller) addEgressFirewallRules(hashedAddressSetNameIPv4, hashedAdd
 				matchTargets = []matchTarget{{matchKindV4CIDR, rule.to.cidrSelector}}
 			}
 		} else {
-			// rule based on DNS NAME
-			dnsNameAddressSets, err := oc.egressFirewallDNS.Add(ef.namespace, rule.to.dnsName)
+			var addressSet addressset.AddressSet
+			// using an anonymous function in order to defer the unlock
+			err := func() error {
+				oc.egressfirewallDNSInfo.Lock()
+				defer oc.egressfirewallDNSInfo.Unlock()
+				if _, ok := oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName]; ok {
+					//the dnsName already exists in another addressSet
+					addressSet = oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName].as
+				} else {
+
+					addressSet, err = oc.addressSetFactory.NewAddressSet(rule.to.dnsName, nil)
+					if err != nil {
+						return err
+					}
+					oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName] = &dnsInformation{
+						as:         addressSet,
+						ipNodes:    make(map[string]sets.String),
+						Namespaces: sets.String{},
+					}
+				}
+
+				oc.egressfirewallDNSInfo.dnsNameInfo[rule.to.dnsName].Namespaces.Insert(namespace)
+				return nil
+			}()
 			if err != nil {
-				return fmt.Errorf("error with EgressFirewallDNS - %v", err)
+				return err
 			}
-			dnsNameIPv4ASHashName, dnsNameIPv6ASHashName := dnsNameAddressSets.GetASHashNames()
+
+			dnsNameIPv4ASHashName, dnsNameIPv6ASHashName := addressSet.GetASHashNames()
 			if dnsNameIPv4ASHashName != "" {
 				matchTargets = append(matchTargets, matchTarget{matchKindV4AddressSet, dnsNameIPv4ASHashName})
 			}
@@ -589,4 +661,107 @@ func getClusterSubnetsExclusion() string {
 		}
 	}
 	return exclusion
+}
+
+// AddNodeDNSInfo is called when a NodeDNSInfo object is created, resposible for creating initial data
+// for dnsNames resolved by nodes
+func (efDNS *egressfirewallDNSInformation) AddNodeDNSInfo(nodeDNSInfo *nodednsinfoapi.NodeDNSInfo) error {
+	klog.Infof("Adding NodeDNSInfo %s to the cluster", nodeDNSInfo.Name)
+
+	efDNS.Lock()
+	defer efDNS.Unlock()
+	for dnsName, dnsEntries := range nodeDNSInfo.Status.DNSEntries {
+		var ipNet []net.IP
+		for _, ip := range dnsEntries.IPAddresses {
+			if efDNS.dnsNameInfo[dnsName].ipNodes[ip] == nil {
+				efDNS.dnsNameInfo[dnsName].ipNodes[ip] = sets.NewString(nodeDNSInfo.Name)
+			} else {
+				efDNS.dnsNameInfo[dnsName].ipNodes[ip].Insert(nodeDNSInfo.Name)
+			}
+			ipNet = append(ipNet, net.ParseIP(ip))
+		}
+		err := efDNS.dnsNameInfo[dnsName].as.AddIPs(ipNet)
+		if err != nil {
+			return fmt.Errorf("error adding IPs to addressSet for dnsName %s: %v", dnsName, err)
+		}
+	}
+	return nil
+}
+
+// UpdateNodeDNSInfo is called when a NodeDNSInfo object is updated, responsible for updating the related internal
+// data
+func (efDNS *egressfirewallDNSInformation) UpdateNodeDNSInfo(newer, older *nodednsinfoapi.NodeDNSInfo) error {
+	for newerDNSName := range newer.Status.DNSEntries {
+		setIPsToAdd := sets.NewString() // ip addresses that are in the new object but not the old
+		ipsToRemove := sets.NewString() // ip addresses that are not in the new object but in the and may still be vallid
+		var ipsToDelete []net.IP        // ip addresses that are not in this object and no longer in any other
+
+		if _, exists := older.Status.DNSEntries[newerDNSName]; exists {
+			oldIPs := sets.NewString(older.Status.DNSEntries[newerDNSName].IPAddresses...)
+			newIPs := sets.NewString(newer.Status.DNSEntries[newerDNSName].IPAddresses...)
+
+			ipsToRemove = oldIPs.Difference(newIPs)
+			setIPsToAdd = newIPs.Difference(oldIPs)
+		} else {
+			setIPsToAdd.Insert(newer.Status.DNSEntries[newerDNSName].IPAddresses...)
+		}
+		var ipsToAdd []net.IP
+		for _, ip := range setIPsToAdd.UnsortedList() {
+			ipsToAdd = append(ipsToAdd, net.ParseIP(ip))
+		}
+		// using anonymous function to defer the unlock
+		err := func() error {
+			efDNS.Lock()
+			defer efDNS.Unlock()
+			err := efDNS.dnsNameInfo[newerDNSName].as.AddIPs(ipsToAdd)
+			if err != nil {
+				return fmt.Errorf("error adding IPs to addressSet for dnsName %s as part of updating: %v", newerDNSName, err)
+			}
+			for _, ip := range setIPsToAdd.UnsortedList() {
+				if efDNS.dnsNameInfo[newerDNSName].ipNodes[ip] == nil {
+					efDNS.dnsNameInfo[newerDNSName].ipNodes[ip] = sets.NewString()
+				}
+				efDNS.dnsNameInfo[newerDNSName].ipNodes[ip].Insert(newer.Name)
+			}
+			for _, ip := range ipsToRemove.UnsortedList() {
+				efDNS.dnsNameInfo[newerDNSName].ipNodes[ip].Delete(newer.Name)
+				//if there is another Node that is reporting this IP address do not remove it
+				if len(efDNS.dnsNameInfo[newerDNSName].ipNodes[ip]) == 0 {
+					ipsToDelete = append(ipsToDelete, net.ParseIP(ip))
+				}
+			}
+			err = efDNS.dnsNameInfo[newerDNSName].as.DeleteIPs(ipsToDelete)
+			if err != nil {
+				return fmt.Errorf("error removing ips for dnsName %s from addressSet as part of updating: %v", newerDNSName, err)
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+//DeleteNodeDNSInfo is called when NodeDNSInfo objects are deleted and cleans up related internal data
+func (efDNS *egressfirewallDNSInformation) DeleteNodeDNSInfo(nodeDNSInfo *nodednsinfoapi.NodeDNSInfo) error {
+	klog.Infof("Deleting NodeDNSInfo %s from cluster", nodeDNSInfo.Name)
+	efDNS.Lock()
+	defer efDNS.Unlock()
+	for dnsName, nodeDNSInfoEntry := range nodeDNSInfo.Status.DNSEntries {
+		//go through all dnsNames to figure out what to do
+		for _, ipAddr := range nodeDNSInfoEntry.IPAddresses {
+			if _, exists := efDNS.dnsNameInfo[dnsName]; exists {
+				delete(efDNS.dnsNameInfo[dnsName].ipNodes[ipAddr], nodeDNSInfo.Name)
+				if len(efDNS.dnsNameInfo[dnsName].ipNodes[ipAddr]) == 0 {
+					err := efDNS.dnsNameInfo[dnsName].as.DeleteIPs([]net.IP{net.ParseIP(ipAddr)})
+					if err != nil {
+						return fmt.Errorf("error removing ips for dnsName %s from addressSet as part of deletion: %v", dnsName, err)
+					}
+					delete(efDNS.dnsNameInfo[dnsName].ipNodes, ipAddr)
+				}
+			}
+		}
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-package ovn
+package egressfirewalldns
 
 import (
 	"fmt"
@@ -6,12 +6,21 @@ import (
 	"testing"
 	"time"
 
-	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
-	mocks "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set/mocks"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
+	//addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
+	//mocks "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set/mocks"
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
 	util_mocks "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util/mocks"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
+
+	"k8s.io/client-go/kubernetes/fake"
+
+	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
+	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	nodednsinfofake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned/fake"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
@@ -22,9 +31,17 @@ import (
 
 func TestNewEgressDNS(t *testing.T) {
 	testCh := make(chan struct{})
-	testOvnAddFtry := addressset.NewOvnAddressSetFactory()
+	nodeName := "Node1"
 	mockDnsOps := new(util_mocks.DNSOps)
 	util.SetDNSLibOpsMockInst(mockDnsOps)
+	fakeClient := &util.OVNClientset{
+		KubeClient:           fake.NewSimpleClientset(),
+		EgressIPClient:       egressipfake.NewSimpleClientset(),
+		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(),
+		NodeDNSInfoClient:    nodednsinfofake.NewSimpleClientset(),
+		APIExtensionsClient:  apiextensionsfake.NewSimpleClientset(),
+	}
+	factory, _ := factory.NewNodeWatchFactory(fakeClient, nodeName)
 	tests := []struct {
 		desc             string
 		errExp           bool
@@ -56,7 +73,7 @@ func TestNewEgressDNS(t *testing.T) {
 				}
 				call.Once()
 			}
-			_, err := NewEgressDNS(testOvnAddFtry, testCh)
+			_, err := NewEgressDNS(nodeName, factory, &kube.Kube{KClient: fakeClient.KubeClient, NodeDNSInfoClient: fakeClient.NodeDNSInfoClient}, testCh)
 			//t.Log(res, err)
 			if tc.errExp {
 				assert.Error(t, err)
@@ -79,40 +96,34 @@ func generateRR(dnsName, ip, nextQueryTime string) dns.RR {
 }
 
 func TestAdd(t *testing.T) {
-	mockAddressSetFactoryOps := new(mocks.AddressSetFactory)
-	mockAddressSetOps := new(mocks.AddressSet)
 	mockDnsOps := new(util_mocks.DNSOps)
 	util.SetDNSLibOpsMockInst(mockDnsOps)
+	nodeName := "Node1"
+	fakeClient := &util.OVNClientset{
+		KubeClient:           fake.NewSimpleClientset(),
+		EgressIPClient:       egressipfake.NewSimpleClientset(),
+		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(),
+		NodeDNSInfoClient:    nodednsinfofake.NewSimpleClientset(),
+		APIExtensionsClient:  apiextensionsfake.NewSimpleClientset(),
+	}
+
+	factory, _ := factory.NewNodeWatchFactory(fakeClient, nodeName)
+	factory.InitializeEgressFirewallWatchFactory()
 	test1DNSName := "www.test.com"
 	test1IPv4 := "2.2.2.2"
 	test1IPv4Update := "3.3.3.3"
 	test1IPv6 := "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
 	tests := []struct {
-		desc                       string
-		errExp                     bool
-		dnsName                    string
-		configIPv4                 bool
-		configIPv6                 bool
-		testingUpdateOnQueryTime   bool
-		syncTime                   time.Duration
-		waitForSyncLoop            bool
-		dnsOpsMockHelper           []ovntest.TestifyMockHelper
-		addressSetFactoryOpsHelper []ovntest.TestifyMockHelper
-		addressSetOpsHelper        []ovntest.TestifyMockHelper
+		desc                     string
+		errExp                   bool
+		dnsName                  string
+		configIPv4               bool
+		configIPv6               bool
+		testingUpdateOnQueryTime bool
+		syncTime                 time.Duration
+		waitForSyncLoop          bool
+		dnsOpsMockHelper         []ovntest.TestifyMockHelper
 	}{
-		{
-			desc:     "NewAddressSet returns error",
-			errExp:   true,
-			syncTime: 5 * time.Minute,
-			dnsOpsMockHelper: []ovntest.TestifyMockHelper{
-				{"ClientConfigFromFile", []string{"string"}, []interface{}{&dns.ClientConfig{
-					Servers: []string{"1.1.1.1"},
-					Port:    "1234"}, nil}, 0, 1},
-			},
-			addressSetFactoryOpsHelper: []ovntest.TestifyMockHelper{
-				{"NewAddressSet", []string{"string", "[]net.IP"}, []interface{}{nil, fmt.Errorf("mock error")}, 0, 1},
-			},
-		},
 		{
 			desc:       "EgressFirewall Add(dnsName) succeeds IPv4 only",
 			errExp:     false,
@@ -129,12 +140,6 @@ func TestAdd(t *testing.T) {
 
 				{"SetQuestion", []string{"*dns.Msg", "string", "uint16"}, []interface{}{&dns.Msg{}}, 0, 1},
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv4, "300")}}, 500 * time.Second, nil}, 0, 1},
-			},
-			addressSetFactoryOpsHelper: []ovntest.TestifyMockHelper{
-				{"NewAddressSet", []string{"string", "[]net.IP"}, []interface{}{mockAddressSetOps, nil}, 0, 1},
-			},
-			addressSetOpsHelper: []ovntest.TestifyMockHelper{
-				{"SetIPs", []string{"[]net.IP"}, []interface{}{nil}, 0, 1},
 			},
 		},
 
@@ -157,12 +162,6 @@ func TestAdd(t *testing.T) {
 				{"SetQuestion", []string{"*dns.Msg", "string", "uint16"}, []interface{}{&dns.Msg{}}, 0, 1},
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv4, "300")}}, 500 * time.Second, nil}, 0, 1},
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv6, "300")}}, 500 * time.Second, nil}, 0, 1},
-			},
-			addressSetFactoryOpsHelper: []ovntest.TestifyMockHelper{
-				{"NewAddressSet", []string{"string", "[]net.IP"}, []interface{}{mockAddressSetOps, nil}, 0, 1},
-			},
-			addressSetOpsHelper: []ovntest.TestifyMockHelper{
-				{"SetIPs", []string{"[]net.IP"}, []interface{}{nil}, 0, 1},
 			},
 		},
 		{
@@ -188,13 +187,6 @@ func TestAdd(t *testing.T) {
 				{"SetQuestion", []string{"*dns.Msg", "string", "uint16"}, []interface{}{&dns.Msg{}}, 0, 1},
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv4Update, "300")}}, 1 * time.Second, nil}, 0, 1},
 			},
-			addressSetFactoryOpsHelper: []ovntest.TestifyMockHelper{
-				{"NewAddressSet", []string{"string", "[]net.IP"}, []interface{}{mockAddressSetOps, nil}, 0, 1},
-			},
-			addressSetOpsHelper: []ovntest.TestifyMockHelper{
-				{"SetIPs", []string{"[]net.IP"}, []interface{}{nil}, 0, 1},
-				{"SetIPs", []string{"[]net.IP"}, []interface{}{nil}, 0, 1},
-			},
 		},
 	}
 	for i, tc := range tests {
@@ -213,37 +205,17 @@ func TestAdd(t *testing.T) {
 				}
 				call.Once()
 			}
-			for _, item := range tc.addressSetFactoryOpsHelper {
-				call := mockAddressSetFactoryOps.On(item.OnCallMethodName)
-				for _, arg := range item.OnCallMethodArgType {
-					call.Arguments = append(call.Arguments, mock.AnythingOfType(arg))
-				}
-				for _, ret := range item.RetArgList {
-					call.ReturnArguments = append(call.ReturnArguments, ret)
-				}
-				call.Once()
-			}
-			for _, item := range tc.addressSetOpsHelper {
-				call := mockAddressSetOps.On(item.OnCallMethodName)
-				for _, arg := range item.OnCallMethodArgType {
-					call.Arguments = append(call.Arguments, mock.AnythingOfType(arg))
-				}
-				for _, ret := range item.RetArgList {
-					call.ReturnArguments = append(call.ReturnArguments, ret)
-				}
-				call.Once()
-			}
-			res, err := NewEgressDNS(mockAddressSetFactoryOps, testCh)
+			res, err := NewEgressDNS(nodeName, factory, &kube.Kube{KClient: fakeClient.KubeClient, NodeDNSInfoClient: fakeClient.NodeDNSInfoClient}, testCh)
 
 			t.Log(res, err)
-			addResult, err := res.Add("addNamespace", test1DNSName)
+			err = res.Add([]string{test1DNSName}, "addNamespace")
 			if tc.errExp {
 				assert.Error(t, err)
 			} else {
 				res.Run(tc.syncTime)
 				assert.Nil(t, err)
 				for stay, timeout := true, time.After(10*time.Second); stay; {
-					_, dnsResolves, _ := res.getDNSEntry(tc.dnsName)
+					_, dnsResolves := res.getDNSEntry(tc.dnsName)
 					if dnsResolves != nil {
 						break
 					}
@@ -258,7 +230,7 @@ func TestAdd(t *testing.T) {
 			}
 			if tc.testingUpdateOnQueryTime {
 				for stay, timeout := true, time.After(10*time.Second); stay; {
-					_, dnsResolves, _ := res.getDNSEntry(tc.dnsName)
+					_, dnsResolves := res.getDNSEntry(tc.dnsName)
 					if dnsResolves != nil {
 						if len(dnsResolves) == 1 && dnsResolves[0].String() == test1IPv4Update {
 							break
@@ -275,34 +247,38 @@ func TestAdd(t *testing.T) {
 			}
 
 			close(testCh)
-			t.Log(addResult, err)
 			mockDnsOps.AssertExpectations(t)
-			mockAddressSetFactoryOps.AssertExpectations(t)
-			mockAddressSetOps.AssertExpectations(t)
 		})
 	}
 }
 
 func TestDelete(t *testing.T) {
-	mockAddressSetFactoryOps := new(mocks.AddressSetFactory)
-	mockAddressSetOps := new(mocks.AddressSet)
 	mockDnsOps := new(util_mocks.DNSOps)
 	util.SetDNSLibOpsMockInst(mockDnsOps)
+	nodeName := "Node1"
+	fakeClient := &util.OVNClientset{
+		KubeClient:           fake.NewSimpleClientset(),
+		EgressIPClient:       egressipfake.NewSimpleClientset(),
+		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(),
+		NodeDNSInfoClient:    nodednsinfofake.NewSimpleClientset(),
+		APIExtensionsClient:  apiextensionsfake.NewSimpleClientset(),
+	}
+
+	factory, _ := factory.NewNodeWatchFactory(fakeClient, nodeName)
+	factory.InitializeEgressFirewallWatchFactory()
 	test1DNSName := "www.test.com"
 	test1IPv4 := "2.2.2.2"
 	test1IPv6 := "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
 	tests := []struct {
-		desc                       string
-		errExp                     bool
-		dnsName                    string
-		configIPv4                 bool
-		configIPv6                 bool
-		testingUpdateOnQueryTime   bool
-		syncTime                   time.Duration
-		waitForSyncLoop            bool
-		dnsOpsMockHelper           []ovntest.TestifyMockHelper
-		addressSetFactoryOpsHelper []ovntest.TestifyMockHelper
-		addressSetOpsHelper        []ovntest.TestifyMockHelper
+		desc                     string
+		errExp                   bool
+		dnsName                  string
+		configIPv4               bool
+		configIPv6               bool
+		testingUpdateOnQueryTime bool
+		syncTime                 time.Duration
+		waitForSyncLoop          bool
+		dnsOpsMockHelper         []ovntest.TestifyMockHelper
 	}{
 		{
 			desc:                     "EgressFirewall Delete functions",
@@ -324,12 +300,115 @@ func TestDelete(t *testing.T) {
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv4, "300")}}, 500 * time.Second, nil}, 0, 1},
 				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv6, "300")}}, 500 * time.Second, nil}, 0, 1},
 			},
-			addressSetFactoryOpsHelper: []ovntest.TestifyMockHelper{
-				{"NewAddressSet", []string{"string", "[]net.IP"}, []interface{}{mockAddressSetOps, nil}, 0, 1},
-			},
-			addressSetOpsHelper: []ovntest.TestifyMockHelper{
-				{"SetIPs", []string{"[]net.IP"}, []interface{}{nil}, 0, 1},
-				{"Destroy", []string{}, []interface{}{nil}, 0, 1},
+		},
+	}
+	for i, tc := range tests {
+		t.Run(fmt.Sprintf("%d:%s", i, tc.desc), func(t *testing.T) {
+			testCh := make(chan struct{})
+			config.IPv4Mode = tc.configIPv4
+			config.IPv6Mode = tc.configIPv6
+
+			for _, item := range tc.dnsOpsMockHelper {
+				call := mockDnsOps.On(item.OnCallMethodName)
+				for _, arg := range item.OnCallMethodArgType {
+					call.Arguments = append(call.Arguments, mock.AnythingOfType(arg))
+				}
+				for _, ret := range item.RetArgList {
+					call.ReturnArguments = append(call.ReturnArguments, ret)
+				}
+				call.Once()
+			}
+			res, err := NewEgressDNS(nodeName, factory, &kube.Kube{KClient: fakeClient.KubeClient, NodeDNSInfoClient: fakeClient.NodeDNSInfoClient}, testCh)
+
+			t.Log(res, err)
+			err = res.Add([]string{test1DNSName}, "addNamespace")
+			if tc.errExp {
+				assert.Error(t, err)
+			} else {
+				res.Run(tc.syncTime)
+				assert.Nil(t, err)
+				for stay, timeout := true, time.After(10*time.Second); stay; {
+					_, dnsResolves := res.getDNSEntry(tc.dnsName)
+					if dnsResolves != nil {
+						break
+					}
+					select {
+					case <-timeout:
+						stay = false
+						t.Errorf("timeout: it is taking too long for the goroutine to complete")
+					default:
+					}
+
+				}
+			}
+			res.Remove([]string{test1DNSName}, "addNamespace")
+			for stay, timeout := true, time.After(10*time.Second); stay; {
+				if _, exists := res.dnsEntries[test1DNSName]; !exists {
+					break
+				}
+				select {
+				case <-timeout:
+					stay = false
+					t.Errorf("timeout: dns is taking to long for the goroutine to update the dns object")
+				default:
+				}
+			}
+
+			assert.Equal(t, len(res.dnsEntries), 0)
+
+			close(testCh)
+			mockDnsOps.AssertExpectations(t)
+		})
+	}
+}
+
+// test what happens when the last dns name is deleted from the EgressFirewall
+// discovered while manually testing that a segfault could happen if the entry that is
+// the next to refresh is deleted before the refresh occurs
+func TestDeleteWithDNSRefresh(t *testing.T) {
+	mockDnsOps := new(util_mocks.DNSOps)
+	util.SetDNSLibOpsMockInst(mockDnsOps)
+	nodeName := "Node1"
+	fakeClient := &util.OVNClientset{
+		KubeClient:           fake.NewSimpleClientset(),
+		EgressIPClient:       egressipfake.NewSimpleClientset(),
+		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(),
+		NodeDNSInfoClient:    nodednsinfofake.NewSimpleClientset(),
+		APIExtensionsClient:  apiextensionsfake.NewSimpleClientset(),
+	}
+
+	factory, _ := factory.NewNodeWatchFactory(fakeClient, nodeName)
+	factory.InitializeEgressFirewallWatchFactory()
+	test1DNSName := "www.test.com"
+	test1IPv4 := "2.2.2.2"
+	//test1IPv6 := "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+	tests := []struct {
+		desc                     string
+		errExp                   bool
+		dnsName                  string
+		configIPv4               bool
+		configIPv6               bool
+		testingUpdateOnQueryTime bool
+		syncTime                 time.Duration
+		waitForSyncLoop          bool
+		dnsOpsMockHelper         []ovntest.TestifyMockHelper
+	}{
+		{
+			desc:                     "EgressFirewall Delete functions, avoids segfault when deleting dns names",
+			errExp:                   false,
+			syncTime:                 5 * time.Minute,
+			dnsName:                  test1DNSName,
+			testingUpdateOnQueryTime: false,
+			configIPv4:               true,
+			configIPv6:               false,
+
+			dnsOpsMockHelper: []ovntest.TestifyMockHelper{
+				{"ClientConfigFromFile", []string{"string"}, []interface{}{&dns.ClientConfig{
+					Servers: []string{"1.1.1.1"},
+					Port:    "1234"}, nil}, 0, 1},
+				{"Fqdn", []string{"string"}, []interface{}{test1DNSName}, 0, 1},
+				{"SetQuestion", []string{"*dns.Msg", "string", "uint16"}, []interface{}{&dns.Msg{}}, 0, 1},
+				{"Exchange", []string{"*dns.Client", "*dns.Msg", "string"}, []interface{}{&dns.Msg{Answer: []dns.RR{generateRR(test1DNSName, test1IPv4, "1")}}, 1 * time.Second, nil}, 0, 1},
 			},
 		},
 	}
@@ -349,37 +428,17 @@ func TestDelete(t *testing.T) {
 				}
 				call.Once()
 			}
-			for _, item := range tc.addressSetFactoryOpsHelper {
-				call := mockAddressSetFactoryOps.On(item.OnCallMethodName)
-				for _, arg := range item.OnCallMethodArgType {
-					call.Arguments = append(call.Arguments, mock.AnythingOfType(arg))
-				}
-				for _, ret := range item.RetArgList {
-					call.ReturnArguments = append(call.ReturnArguments, ret)
-				}
-				call.Once()
-			}
-			for _, item := range tc.addressSetOpsHelper {
-				call := mockAddressSetOps.On(item.OnCallMethodName)
-				for _, arg := range item.OnCallMethodArgType {
-					call.Arguments = append(call.Arguments, mock.AnythingOfType(arg))
-				}
-				for _, ret := range item.RetArgList {
-					call.ReturnArguments = append(call.ReturnArguments, ret)
-				}
-				call.Once()
-			}
-			res, err := NewEgressDNS(mockAddressSetFactoryOps, testCh)
+			res, err := NewEgressDNS(nodeName, factory, &kube.Kube{KClient: fakeClient.KubeClient, NodeDNSInfoClient: fakeClient.NodeDNSInfoClient}, testCh)
 
 			t.Log(res, err)
-			addResult, err := res.Add("addNamespace", test1DNSName)
+			err = res.Add([]string{test1DNSName}, "addNamespace")
 			if tc.errExp {
 				assert.Error(t, err)
 			} else {
 				res.Run(tc.syncTime)
 				assert.Nil(t, err)
 				for stay, timeout := true, time.After(10*time.Second); stay; {
-					_, dnsResolves, _ := res.getDNSEntry(tc.dnsName)
+					_, dnsResolves := res.getDNSEntry(tc.dnsName)
 					if dnsResolves != nil {
 						break
 					}
@@ -392,11 +451,9 @@ func TestDelete(t *testing.T) {
 
 				}
 			}
-			_, dnsResolves, _ := res.getDNSEntry(tc.dnsName)
-			res.Delete("addNamespace")
+			res.Remove([]string{test1DNSName}, "addNamespace")
 			for stay, timeout := true, time.After(10*time.Second); stay; {
-				_, dnsResolves, _ = res.getDNSEntry(tc.dnsName)
-				if dnsResolves == nil {
+				if _, exists := res.dnsEntries[test1DNSName]; !exists {
 					break
 				}
 				select {
@@ -407,23 +464,22 @@ func TestDelete(t *testing.T) {
 				}
 			}
 
-			assert.Nil(t, dnsResolves)
+			assert.Equal(t, len(res.dnsEntries), 0)
+			//the segfault would occur before the below timeout
+			time.Sleep(2 * time.Second)
 
 			close(testCh)
-			t.Log(addResult, err)
 			mockDnsOps.AssertExpectations(t)
-			mockAddressSetFactoryOps.AssertExpectations(t)
-			mockAddressSetOps.AssertExpectations(t)
 		})
 	}
 }
 
-func (e *EgressDNS) getDNSEntry(dnsName string) (map[string]struct{}, []net.IP, addressset.AddressSet) {
+func (e *EgressDNS) getDNSEntry(dnsName string) (map[string]struct{}, []net.IP) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	if dnsEntry, exists := e.dnsEntries[dnsName]; exists {
-		return dnsEntry.namespaces, dnsEntry.dnsResolves, dnsEntry.dnsAddressSet
+		return dnsEntry.namespaces, dnsEntry.dnsResolves
 	}
 
-	return nil, nil, nil
+	return nil, nil
 }

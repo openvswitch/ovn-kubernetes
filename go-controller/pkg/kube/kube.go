@@ -9,6 +9,8 @@ import (
 	egressfirewallclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned"
 	egressipv1 "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
 	egressipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned"
+	nodednsinfo "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1"
+	nodednsinfoclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned"
 	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -26,6 +28,7 @@ type Interface interface {
 	UpdateEgressFirewall(egressfirewall *egressfirewall.EgressFirewall) error
 	UpdateEgressIP(eIP *egressipv1.EgressIP) error
 	UpdateNodeStatus(node *kapi.Node) error
+	UpdateNodeDNSInfo(nodeDNSInfo *nodednsinfo.NodeDNSInfo) error
 	GetAnnotationsOnPod(namespace, name string) (map[string]string, error)
 	GetNodes() (*kapi.NodeList, error)
 	GetEgressIP(name string) (*egressipv1.EgressIP, error)
@@ -35,6 +38,8 @@ type Interface interface {
 	GetNode(name string) (*kapi.Node, error)
 	GetEndpoint(namespace, name string) (*kapi.Endpoints, error)
 	CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error)
+	CreateNodeDNSInfo(nodeDNSInfo *nodednsinfo.NodeDNSInfo) (*nodednsinfo.NodeDNSInfo, error)
+	DeleteNodeDNSInfo(name string) error
 	Events() kv1core.EventInterface
 }
 
@@ -43,6 +48,7 @@ type Kube struct {
 	KClient              kubernetes.Interface
 	EIPClient            egressipclientset.Interface
 	EgressFirewallClient egressfirewallclientset.Interface
+	NodeDNSInfoClient    nodednsinfoclientset.Interface
 }
 
 // SetAnnotationsOnPod takes the pod object and map of key/value string pairs to set as annotations
@@ -138,6 +144,13 @@ func (k *Kube) UpdateEgressIP(eIP *egressipv1.EgressIP) error {
 	return err
 }
 
+// UpdateNodeDNSInfo updates the NodeDNSInfo with the provided NodeDNSInfo data
+func (k *Kube) UpdateNodeDNSInfo(nodeDNSInfo *nodednsinfo.NodeDNSInfo) error {
+	klog.Infof("Updating nodeDNSInfo %s", nodeDNSInfo.Name)
+	_, err := k.NodeDNSInfoClient.K8sV1().NodeDNSInfos().Update(context.TODO(), nodeDNSInfo, metav1.UpdateOptions{})
+	return err
+}
+
 // UpdateNodeStatus takes the node object and sets the provided update status
 func (k *Kube) UpdateNodeStatus(node *kapi.Node) error {
 	klog.Infof("Updating status on node %s", node.Name)
@@ -199,6 +212,16 @@ func (k *Kube) GetEndpoint(namespace, name string) (*kapi.Endpoints, error) {
 // CreateEndpoint creates the Endpoints resource
 func (k *Kube) CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error) {
 	return k.KClient.CoreV1().Endpoints(namespace).Create(context.TODO(), ep, metav1.CreateOptions{})
+}
+
+// CreateNodeDNSInfo creates the nodeDNSInfo resource
+func (k *Kube) CreateNodeDNSInfo(nodeDNSInfo *nodednsinfo.NodeDNSInfo) (*nodednsinfo.NodeDNSInfo, error) {
+	return k.NodeDNSInfoClient.K8sV1().NodeDNSInfos().Create(context.TODO(), nodeDNSInfo, metav1.CreateOptions{})
+}
+
+// DeleteNodeDNSInfo deletes a nodeDNSInfo resource
+func (k *Kube) DeleteNodeDNSInfo(name string) error {
+	return k.NodeDNSInfoClient.K8sV1().NodeDNSInfos().Delete(context.TODO(), name, *metav1.NewDeleteOptions(0))
 }
 
 // Events returns events to use when creating an EventSinkImpl

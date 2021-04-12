@@ -18,6 +18,8 @@ import (
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 	egressip "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	nodednsinfo "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1"
+	nodednsinfofake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned/fake"
 	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 )
 
@@ -59,12 +61,15 @@ func NewFakeOVN(fexec *ovntest.FakeExec) *FakeOVN {
 func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 	egressIPObjects := []runtime.Object{}
 	egressFirewallObjects := []runtime.Object{}
+	nodeDNSInfoObjects := []runtime.Object{}
 	v1Objects := []runtime.Object{}
 	for _, object := range objects {
 		if _, isEgressIPObject := object.(*egressip.EgressIPList); isEgressIPObject {
 			egressIPObjects = append(egressIPObjects, object)
 		} else if _, isEgressFirewallObject := object.(*egressfirewall.EgressFirewallList); isEgressFirewallObject {
 			egressFirewallObjects = append(egressFirewallObjects, object)
+		} else if _, isNodeDNSInfoObject := object.(*nodednsinfo.NodeDNSInfoList); isNodeDNSInfoObject {
+			nodeDNSInfoObjects = append(nodeDNSInfoObjects, object)
 		} else {
 			v1Objects = append(v1Objects, object)
 		}
@@ -75,6 +80,7 @@ func (o *FakeOVN) start(ctx *cli.Context, objects ...runtime.Object) {
 		KubeClient:           fake.NewSimpleClientset(v1Objects...),
 		EgressIPClient:       egressipfake.NewSimpleClientset(egressIPObjects...),
 		EgressFirewallClient: egressfirewallfake.NewSimpleClientset(egressFirewallObjects...),
+		NodeDNSInfoClient:    nodednsinfofake.NewSimpleClientset(nodeDNSInfoObjects...),
 		APIExtensionsClient:  apiextensionsfake.NewSimpleClientset(),
 	}
 	o.init()

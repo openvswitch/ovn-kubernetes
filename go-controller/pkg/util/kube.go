@@ -23,6 +23,7 @@ import (
 
 	egressfirewallclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned"
 	egressipclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned"
+	nodednsinfoclientset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned"
 	discovery "k8s.io/api/discovery/v1beta1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 
@@ -35,6 +36,7 @@ type OVNClientset struct {
 	KubeClient           kubernetes.Interface
 	EgressIPClient       egressipclientset.Interface
 	EgressFirewallClient egressfirewallclientset.Interface
+	NodeDNSInfoClient    nodednsinfoclientset.Interface
 	APIExtensionsClient  apiextensionsclientset.Interface
 }
 
@@ -135,10 +137,15 @@ func NewOVNClientset(conf *config.KubernetesConfig) (*OVNClientset, error) {
 	if err != nil {
 		return nil, err
 	}
+	nodeDNSInfoClientset, err := nodednsinfoclientset.NewForConfig(kconfig)
+	if err != nil {
+		return nil, err
+	}
 	return &OVNClientset{
 		KubeClient:           kclientset,
 		EgressIPClient:       egressIPClientset,
 		EgressFirewallClient: egressFirewallClientset,
+		NodeDNSInfoClient:    nodeDNSInfoClientset,
 		APIExtensionsClient:  crdClientset,
 	}, nil
 }

@@ -133,6 +133,80 @@ func (f *FakeAddressSetFactory) ExpectAddressSetWithIPs(name string, ips []strin
 	gomega.Expect(lenAddressSet).To(gomega.Equal(len(ips)))
 }
 
+//ExpectAddressSetWithIPsBool ensures athat the named addressset exists with the given set of IPs
+//TODO: (jtanenba) replace ExpectAddressSetWithIPs with the below function, this is not a testing package
+//                 the developer should be able to determine what to do for their own testing
+func (f *FakeAddressSetFactory) ExpectAddressSetWithIPsBool(name string, ips []string) bool {
+	name4, name6 := MakeAddressSetName(name)
+	var lenAddressSet int
+
+	as4 := f.getAddressSet(name4)
+	if as4 != nil {
+		defer as4.Unlock()
+		lenAddressSet = lenAddressSet + len(as4.ips)
+	}
+	as6 := f.getAddressSet(name6)
+	if as6 != nil {
+		defer as6.Unlock()
+		lenAddressSet = lenAddressSet + len(as6.ips)
+	}
+	for _, ip := range ips {
+		if utilnet.IsIPv6(net.ParseIP(ip)) {
+			if as6 == nil {
+				return false
+			}
+			if _, exist := as6.ips[ip]; !exist {
+				return false
+			}
+		} else {
+			if as4 == nil {
+				return false
+			}
+			if _, exist := as4.ips[ip]; !exist {
+				return false
+			}
+		}
+	}
+	return lenAddressSet == len(ips)
+}
+
+// EventuallyExpectAddressSetWithIPs ensures that the named addressset exists and will have the given set of ips
+func (f *FakeAddressSetFactory) EventuallyExpectAddressSetWithIPs(name string, ips []string) {
+	name4, name6 := MakeAddressSetName(name)
+	gomega.Eventually(func() bool {
+		var lenAddressSet int
+
+		as4 := f.getAddressSet(name4)
+		if as4 != nil {
+			defer as4.Unlock()
+			lenAddressSet = lenAddressSet + len(as4.ips)
+		}
+		as6 := f.getAddressSet(name6)
+		if as6 != nil {
+			defer as6.Unlock()
+			lenAddressSet = lenAddressSet + len(as6.ips)
+		}
+		for _, ip := range ips {
+			if utilnet.IsIPv6(net.ParseIP(ip)) {
+				if as6 == nil {
+					return false
+				}
+				if _, exist := as6.ips[ip]; !exist {
+					return false
+				}
+			} else {
+				if as4 == nil {
+					return false
+				}
+				if _, exist := as4.ips[ip]; !exist {
+					return false
+				}
+			}
+		}
+		return lenAddressSet == len(ips)
+	}, 2).Should(gomega.BeTrue())
+}
+
 // ExpectEmptyAddressSet ensures the named address set exists with no IPs
 func (f *FakeAddressSetFactory) ExpectEmptyAddressSet(name string) {
 	f.ExpectAddressSetWithIPs(name, nil)

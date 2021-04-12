@@ -26,8 +26,11 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	utiltesting "k8s.io/client-go/util/testing"
 
+	egressfirewallclientfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
+	nodednsinfoclientfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned/fake"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/factory"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 )
 
 func clientDoCNI(t *testing.T, client *http.Client, req *Request) ([]byte, int) {
@@ -82,8 +85,16 @@ func TestCNIServer(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 	socketPath := filepath.Join(tmpDir, serverSocketName)
 	fakeClient := fake.NewSimpleClientset()
+	fakeEgressFirewallClient := egressfirewallclientfake.NewSimpleClientset()
+	crdFakeClient := apiextensionsfake.NewSimpleClientset()
+	fakeNodeDNSInfoClient := nodednsinfoclientfake.NewSimpleClientset()
 
-	fakeClientset := &util.OVNClientset{KubeClient: fakeClient}
+	fakeClientset := &util.OVNClientset{
+		KubeClient:           fakeClient,
+		EgressFirewallClient: fakeEgressFirewallClient,
+		NodeDNSInfoClient:    fakeNodeDNSInfoClient,
+		APIExtensionsClient:  crdFakeClient,
+	}
 	wf, err := factory.NewNodeWatchFactory(fakeClientset, nodeName)
 	if err != nil {
 		t.Fatalf("failed to create watch factory: %v", err)
@@ -279,7 +290,15 @@ func TestCNIServerCancelAdd(t *testing.T) {
 		},
 	)
 
-	fakeClientset := &util.OVNClientset{KubeClient: fakeClient}
+	fakeEgressFirewallClient := egressfirewallclientfake.NewSimpleClientset()
+	crdFakeClient := apiextensionsfake.NewSimpleClientset()
+	fakeNodeDNSInfoClient := nodednsinfoclientfake.NewSimpleClientset()
+	fakeClientset := &util.OVNClientset{
+		KubeClient:           fakeClient,
+		EgressFirewallClient: fakeEgressFirewallClient,
+		NodeDNSInfoClient:    fakeNodeDNSInfoClient,
+		APIExtensionsClient:  crdFakeClient,
+	}
 	wf, err := factory.NewNodeWatchFactory(fakeClientset, nodeName)
 	if err != nil {
 		t.Fatalf("failed to create watch factory: %v", err)

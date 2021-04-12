@@ -1280,17 +1280,23 @@ spec:
   egress:
   - type: Allow
     to:
-      cidrSelector: 8.8.8.8/32
+      cidrSelector: %s/32
   - type: Allow
     to:
-      cidrSelector: 1.1.1.0/24
+      cidrSelector: %s/24
     ports:
       - protocol: TCP
         port: 80
+  - type: Allow
+    to:
+      dnsName: www.google.com
   - type: Deny
     to:
       cidrSelector: 0.0.0.0/0
-`, f.Namespace.Name)
+`,
+			f.Namespace.Name,
+			exFWPermitTcpDnsDest,
+			exFWPermitTcpWwwDest)
 		// write the config to a file for application and defer the removal
 		if err := ioutil.WriteFile(egressFirewallYamlFile, []byte(egressFirewallConfig), 0644); err != nil {
 			framework.Failf("Unable to write CRD config to disk: %v", err)
@@ -1349,6 +1355,47 @@ spec:
 		_, err = framework.RunKubectl(f.Namespace.Name, "exec", srcPodName, testContainerFlag, "--", "nc", "-vz", "-w", testTimeout, exFWPermitTcpWwwDest, "443")
 		if err == nil {
 			framework.Failf("Failed to curl the remote host %s from container %s on node %s: %v", exFWPermitTcpWwwDest, ovnContainer, serverNodeInfo.name, err)
+		}
+
+		//FIXME: (jtanenba) I discovered that at least in github CI in shared gateway mode pods cannot resolve DNS names, the resolve fails returning `nc: getaddrinfo: Try again`
+		if os.Getenv("OVN_GATEWAY_MODE") != "shared" {
+			ginkgo.By(fmt.Sprintf("Verifying connectivity to an explicitly allowed host by DNS name %s is permitted as defined by external firewall policy", "www.google.com"))
+			_, err = framework.RunKubectl(f.Namespace.Name, "exec", srcPodName, testContainerFlag, "--", "nc", "-vz", "-w", testTimeout, "www.google.com.", "443")
+			if err != nil {
+				framework.Failf("Failed to ping remote host %s from container %s on node %s: %+v", "www.google.com", srcPodName, serverNodeInfo.name, err)
+			}
+
+			deleteArgs := []string{
+				"delete",
+				frameworkNsFlag,
+				"egressfirewall",
+				"default",
+			}
+			framework.Logf("Deleteing EgressFirewall configuration: %s ", deleteArgs)
+			framework.RunKubectlOrDie(f.Namespace.Name, deleteArgs...)
+			egressFirewallConfig = fmt.Sprintf(`kind: EgressFirewall
+apiVersion: k8s.ovn.org/v1
+metadata:
+  name: default
+  namespace: %s
+spec:
+  egress:
+  - type: Deny
+    to:
+      dnsName: www.google.com
+`, f.Namespace.Name)
+			if err := ioutil.WriteFile(egressFirewallYamlFile, []byte(egressFirewallConfig), 0644); err != nil {
+				framework.Failf("Unable to write CRD config to disk: %v", err)
+			}
+			// the removal is already defered
+			framework.Logf("Applying new EgressFirewall configuration: %s ", applyArgs)
+			// apply the egress firewall configuration
+			framework.RunKubectlOrDie(f.Namespace.Name, applyArgs...)
+			ginkgo.By(fmt.Sprintf("Verifying connectivity to an explicitly denied host by DNS name %s is denied as defined by external firewall policy", "www.google.com"))
+			_, err = framework.RunKubectl(f.Namespace.Name, "exec", srcPodName, testContainerFlag, "--", "nc", "-vz", "-w", testTimeout, "www.google.com.", "443")
+			if err == nil {
+				framework.Failf("Succeded ping to explictily denied remote host %s from container %s on node %s: %+v", "www.google.com.", srcPodName, serverNodeInfo.name, err)
+			}
 		}
 	})
 })

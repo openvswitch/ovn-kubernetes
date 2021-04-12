@@ -9,6 +9,7 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
 	egressipfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressip/v1/apis/clientset/versioned/fake"
+	nodednsinfofake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/nodednsinfo/v1/apis/clientset/versioned/fake"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/kube"
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
 	ovntypes "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
@@ -203,17 +204,19 @@ var _ = ginkgo.Describe("OVN Namespace Operations", func() {
 				egressFirewallFakeClient := &egressfirewallfake.Clientset{}
 				crdFakeClient := &apiextensionsfake.Clientset{}
 				egressIPFakeClient := &egressipfake.Clientset{}
+				NodeDNSInfoFakeClient := &nodednsinfofake.Clientset{}
 				fakeClient := &util.OVNClientset{
 					KubeClient:           kubeFakeClient,
 					EgressIPClient:       egressIPFakeClient,
 					EgressFirewallClient: egressFirewallFakeClient,
 					APIExtensionsClient:  crdFakeClient,
+					NodeDNSInfoClient:    NodeDNSInfoFakeClient,
 				}
 
 				_, err := fakeClient.KubeClient.CoreV1().Nodes().Create(context.TODO(), &testNode, metav1.CreateOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-				nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{fakeClient.KubeClient, fakeClient.EgressIPClient, fakeClient.EgressFirewallClient}, &testNode)
+				nodeAnnotator := kube.NewNodeAnnotator(&kube.Kube{fakeClient.KubeClient, fakeClient.EgressIPClient, fakeClient.EgressFirewallClient, fakeClient.NodeDNSInfoClient}, &testNode)
 
 				ifaceID := node1.PhysicalBridgeName + "_" + node1.Name
 				vlanID := uint(1024)
