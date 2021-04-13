@@ -2,14 +2,16 @@
 
 set -ex
 
+K8S_VERSION=${K8S_VERSION:-v1.21.0}
+
 # Install latest stable kubectl
 curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
 chmod +x ./kubectl
 sudo mv ./kubectl /usr/local/bin/kubectl
 
 # Install e2e test binary and ginkgo
-curl -L https://github.com/trozet/ovnFiles/blob/master/kubernetes-test-linux-v1.21.0-alpha.0.341%2B46d481b4556e33.tar.gz?raw=true -o kubernetes-test-linux-amd64.tar.gz
-tar xvzf kubernetes-test-linux-amd64.tar.gz
+curl -LO "https://storage.googleapis.com/kubernetes-release/release/${K8S_VERSION}/kubernetes-test-linux-amd64.tar.gz"
+tar xvzf kubernetes-test-linux-amd64.tar.gz --strip-components=3 kubernetes/test/bin/ginkgo kubernetes/test/bin/e2e.test
 sudo mv ./e2e.test /usr/local/bin/e2e.test
 sudo mv ./ginkgo /usr/local/bin/ginkgo
 rm kubernetes-test-linux-amd64.tar.gz

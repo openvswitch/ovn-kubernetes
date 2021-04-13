@@ -232,7 +232,7 @@ install_j2_renderer() {
 set_default_params() {
   # Set default values
   KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME:-ovn}
-  K8S_VERSION=${K8S_VERSION:-v1.20.0}
+  K8S_VERSION=${K8S_VERSION:-v1.21.0}
   OVN_GATEWAY_MODE=${OVN_GATEWAY_MODE:-local}
   KIND_INSTALL_INGRESS=${KIND_INSTALL_INGRESS:-false}
   OVN_HA=${OVN_HA:-false}
