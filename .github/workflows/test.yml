@@ -6,6 +6,7 @@ on:
     branches: [ master ]
   schedule:
     - cron: '0 */12 * * *'
+  workflow_dispatch:
 
 env:
   GO_VERSION: 1.15.5
@@ -177,80 +178,93 @@ jobs:
       OVN_EMPTY_LB_EVENTS: "${{ matrix.target.emptylb-enable }}"
     steps:
 
-    - name: Free up disk space
-      run: sudo eatmydata apt-get remove --auto-remove -y aspnetcore-* dotnet-* libmono-* mono-* msbuild php-* php7* ghc-* zulu-*
+      # This is what checks out a copy of this repo to use the local actions from
+      - uses: actions/checkout@v2
 
-    - name: Set up Go
-      uses: actions/setup-go@v1
-      with:
-        go-version: ${{ env.GO_VERSION }}
-      id: go
+      - name: Cleanup and initial env setup
+        uses: ./.github/actions/init-env
 
-    - name: Check out code into the Go module directory
-      uses: actions/checkout@v2
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v2
 
-    - name: Set up environment
-      run: |
-        export GOPATH=$(go env GOPATH)
-        echo "GOPATH=$GOPATH" >> $GITHUB_ENV
-        echo "$GOPATH/bin" >> $GITHUB_PATH
+      - uses: actions/download-artifact@v2
+        with:
+          name: test-image
 
-    - name: Disable ufw
-      # For IPv6 and Dualstack, ufw (Uncomplicated Firewall) should be disabled.
-      # Not needed for KIND deployments, so just disable all the time.
-      run: |
-        sudo ufw disable
+      - name: Load docker image
+        run: |
+          docker load --input image.tar
 
-    - uses: actions/download-artifact@v2
-      with:
-        name: test-image
+      - name: Set up Go
+        uses: actions/setup-go@v1
+        with:
+          go-version: ${{ env.GO_VERSION }}
+        id: go
 
-    - name: Load docker image
-      run: |
-        docker load --input image.tar
+      - name: Restore Kubernetes from cache
+        id: cache-k8s
+        uses: actions/cache@v2
+        with:
+          path: "${{ env.GOPATH }}/src/k8s.io/kubernetes/"
+          key: k8s-go-2-${{ env.K8S_VERSION }}
 
-    - name: kind setup
-      run: |
-        export OVN_IMAGE="ovn-daemonset-f:dev"
-        make -C test install-kind
+      # Re-build if kube wasn't in the cache due to
+      # https://github.com/actions/cache/issues/107#issuecomment-598188250
+      # https://github.com/actions/cache/issues/208#issuecomment-596664572
+      # TODO: check if this step is no longer needed as the above bugs appear to be resolved
+      - name: Build and install Kubernetes
+        if: steps.cache-k8s.outputs.cache-hit != 'true'
+        run: |
+          set -x
+          rm -rf $GOPATH/src/k8s.io/kubernetes/
+          git clone --single-branch --branch $K8S_VERSION https://github.com/kubernetes/kubernetes.git $GOPATH/src/k8s.io/kubernetes/
+          pushd $GOPATH/src/k8s.io/kubernetes/
+          make WHAT="test/e2e/e2e.test vendor/github.com/onsi/ginkgo/ginkgo cmd/kubectl"
+          rm -rf .git
 
-    - name: Run Tests
-      run: |
-        make -C test ${{ matrix.target.shard }}
+      - name: Download test-image
+        uses: actions/download-artifact@v2
+        with:
+          name: test-image
 
-    - name: Upload Junit Reports
-      if: always()
-      uses: actions/upload-artifact@v2
-      with:
-        name: kind-junit-${{ env.JOB_NAME }}-${{ github.run_id }}
-        path: './test/_artifacts/*.xml'
+      - name: Deploy Kind cluster and run tests
+        uses: ./.github/actions/deploy-cluster-run-tests
 
-    - name: Generate Test Report
-      id: xunit-viewer
-      if: always()
-      uses: AutoModality/action-xunit-viewer@v1
-      with:
-        results: ./test/_artifacts/
+      - name: Export logs
+        if: always()
+        run: |
+          mkdir -p /tmp/kind/logs
+          kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
+        shell: bash
 
-    - name: Upload Test Report
-      if: always()
-      uses: actions/upload-artifact@v2
-      with:
-        name: test-report-${{ env.JOB_NAME }}-${{ github.run_id }}
-        path: './test/_artifacts/index.html'
+      - name: Generate Test Report
+        id: xunit-viewer
+        if: always()
+        uses: AutoModality/action-xunit-viewer@v1
+        with:
+          results: ./test/_artifacts/
 
-    - name: Export logs
-      if: always()
-      run: |
-        mkdir -p /tmp/kind/logs
-        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
+      - name: Upload Junit Reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: kind-junit-${{ env.JOB_NAME }}-${{ github.run_id }}
+          path: |
+            './test/_artifacts/*.xml'
 
-    - name: Upload logs
-      if: always()
-      uses: actions/upload-artifact@v2
-      with:
-        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
-        path: /tmp/kind/logs
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: test-report-${{ env.JOB_NAME }}-${{ github.run_id }}
+          path: './test/_artifacts/index.html'
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
+          path: /tmp/kind/logs
 
   e2e-dual-conversion:
     name: e2e-dual-conversion
@@ -392,8 +406,11 @@ jobs:
       OVN_GATEWAY_MODE: "${{ matrix.gateway-mode }}"
     steps:
 
-      - name: Free up disk space
-        run: sudo eatmydata apt-get remove --auto-remove -y aspnetcore-* dotnet-* libmono-* mono-* msbuild php-* php7* ghc-* zulu-*
+      # This is what checks out a copy of this repo to use the local actions from
+      - uses: actions/checkout@v2
+
+      - name: Cleanup and initial env setup
+        uses: ./.github/actions/init-env
 
       - name: Set up Go
         uses: actions/setup-go@v1
@@ -401,43 +418,43 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
         id: go
 
-      - name: Check out code into the Go module directory
-        uses: actions/checkout@v2
-
-      - name: Set up environment
-        run: |
-          export GOPATH=$(go env GOPATH)
-          echo "GOPATH=$GOPATH" >> $GITHUB_ENV
-          echo "$GOPATH/bin" >> $GITHUB_PATH
-
-      - name: Disable ufw
-        # For IPv6 and Dualstack, ufw (Uncomplicated Firewall) should be disabled.
-        # Not needed for KIND deployments, so just disable all the time.
-        run: |
-          sudo ufw disable
-
       - uses: actions/download-artifact@v2
+
+      - name: Restore Kubernetes from cache
+        id: cache-k8s
+        uses: actions/cache@v2
+        with:
+          path: "${{ env.GOPATH }}/src/k8s.io/kubernetes/"
+          key: k8s-go-2-${{ env.K8S_VERSION }}
+
+      # Re-build if kube wasn't in the cache due to
+      # https://github.com/actions/cache/issues/107#issuecomment-598188250
+      # https://github.com/actions/cache/issues/208#issuecomment-596664572
+      # TODO: check if this step is no longer needed as the above bugs appear to be resolved
+      - name: Build and install Kubernetes
+        if: steps.cache-k8s.outputs.cache-hit != 'true'
+        run: |
+          set -x
+          rm -rf $GOPATH/src/k8s.io/kubernetes/
+          git clone --single-branch --branch $K8S_VERSION https://github.com/kubernetes/kubernetes.git $GOPATH/src/k8s.io/kubernetes/
+          pushd $GOPATH/src/k8s.io/kubernetes/
+          make WHAT="test/e2e/e2e.test vendor/github.com/onsi/ginkgo/ginkgo cmd/kubectl"
+          rm -rf .git
+
+      - name: Download test-image
+        uses: actions/download-artifact@v2
         with:
           name: test-image
-      - name: Load docker image
-        run: |
-          docker load --input image.tar
 
-      - name: kind setup
-        run: |
-          export OVN_IMAGE="ovn-daemonset-f:dev"
-          make -C test install-kind
+      - name: Deploy Kind cluster and run tests
+        uses: ./.github/actions/deploy-cluster-run-tests
 
-      - name: Run Tests
-        run: |
-          make -C test ${{ matrix.target.shard }}
-
-      - name: Upload Junit Reports
+      - name: Export logs
         if: always()
-        uses: actions/upload-artifact@v2
-        with:
-          name: kind-junit-${{ env.JOB_NAME }}-${{ github.run_id }}
-          path: './test/_artifacts/*.xml'
+        run: |
+          mkdir -p /tmp/kind/logs
+          kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
+        shell: bash
 
       - name: Generate Test Report
         id: xunit-viewer
@@ -446,18 +463,20 @@ jobs:
         with:
           results: ./test/_artifacts/
 
+      - name: Upload Junit Reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: kind-junit-${{ env.JOB_NAME }}-${{ github.run_id }}
+          path: |
+            './test/_artifacts/*.xml'
+
       - name: Upload Test Report
         if: always()
         uses: actions/upload-artifact@v2
         with:
           name: test-report-${{ env.JOB_NAME }}-${{ github.run_id }}
           path: './test/_artifacts/index.html'
-
-      - name: Export logs
-        if: always()
-        run: |
-          mkdir -p /tmp/kind/logs
-          kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
 
       - name: Upload logs
         if: always()

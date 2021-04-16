@@ -1,0 +1,23 @@
+name: "Cleanup and initial env setup"
+description: "Frees up some disk space, disables ufw and sets GO env vars"
+runs:
+  using: "composite"
+  steps:
+  - name: Free up disk space
+    run: |
+      sudo eatmydata apt-get remove --auto-remove -y aspnetcore-* dotnet-* libmono-* mono-* msbuild php-* php7* ghc-* zulu-*
+    shell: bash
+
+  - name: Set up environment
+    run: |
+      export GOPATH=$(go env GOPATH)
+      echo "GOPATH=$GOPATH" >> $GITHUB_ENV
+      echo "$GOPATH/bin" >> $GITHUB_PATH
+    shell: bash
+
+  - name: Disable ufw
+    # For IPv6 and Dualstack, ufw (Uncomplicated Firewall) should be disabled.
+    # Not needed for KIND deployments, so just disable all the time.
+    run: |
+      sudo ufw disable
+    shell: bash

@@ -1,0 +1,20 @@
+name: "Deploy Kind cluster and run tests"
+description: "Loads docker image previously built, installs kind, builds and runs e2e tests and exports logs and reports"
+runs:
+  using: "composite"
+  steps:
+  - name: Load docker image
+    run: |
+      docker load --input image.tar
+    shell: bash
+
+  - name: kind setup
+    run: |
+      export OVN_IMAGE="ovn-daemonset-f:dev"
+      make -C test install-kind
+    shell: bash
+
+  - name: Run Tests
+    run: |
+      make -C test ${{ matrix.target.shard }}
+    shell: bash
