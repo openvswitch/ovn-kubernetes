@@ -17,11 +17,13 @@ kubectl_wait_pods() {
   if ! kubectl wait -n ovn-kubernetes --for=condition=ready pods --all --timeout=${OVN_TIMEOUT} ; then
     echo "some pods in OVN Kubernetes are not running"
     kubectl get pods -A -o wide || true
+    kubectl describe po -n ovn-kubernetes
     exit 1
   fi
   if ! kubectl wait -n kube-system --for=condition=ready pods --all --timeout=300s ; then
     echo "some pods in the system are not running"
     kubectl get pods -A -o wide || true
+    kubectl describe po -A
     exit 1
   fi
 }
