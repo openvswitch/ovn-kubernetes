@@ -33,7 +33,7 @@ type gateway struct {
 	// portClaimWatcher is for reserving ports for virtual IPs allocated by the cluster on the host
 	portClaimWatcher informer.ServiceEventHandler
 	// nodePortWatcher is used in Shared GW mode to handle nodePort flows in shared OVS bridge
-	nodePortWatcher informer.ServiceEventHandler
+	nodePortWatcher informer.ServiceAndEndpointsEventHandler
 	// localPortWatcher is used in Local GW mode to handle iptables rules and routes for services
 	localPortWatcher informer.ServiceEventHandler
 	openflowManager  *openflowManager
@@ -106,17 +106,26 @@ func (g *gateway) AddEndpoints(ep *kapi.Endpoints) {
 	if g.loadBalancerHealthChecker != nil {
 		g.loadBalancerHealthChecker.AddEndpoints(ep)
 	}
+	if g.nodePortWatcher != nil {
+		g.nodePortWatcher.AddEndpoints(ep)
+	}
 }
 
 func (g *gateway) UpdateEndpoints(old, new *kapi.Endpoints) {
 	if g.loadBalancerHealthChecker != nil {
 		g.loadBalancerHealthChecker.UpdateEndpoints(old, new)
 	}
+	if g.nodePortWatcher != nil {
+		g.nodePortWatcher.UpdateEndpoints(old, new)
+	}
 }
 
 func (g *gateway) DeleteEndpoints(ep *kapi.Endpoints) {
 	if g.loadBalancerHealthChecker != nil {
 		g.loadBalancerHealthChecker.DeleteEndpoints(ep)
+	}
+	if g.nodePortWatcher != nil {
+		g.nodePortWatcher.DeleteEndpoints(ep)
 	}
 }
 
