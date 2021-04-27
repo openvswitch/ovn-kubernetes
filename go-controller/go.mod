@@ -40,6 +40,7 @@ require (
 	k8s.io/client-go v0.20.0
 	k8s.io/klog v0.0.0-20181102134211-b9b56d5dfc92
 	k8s.io/klog/v2 v2.4.0
+	k8s.io/kubernetes v0.0.0-00010101000000-000000000000
 	k8s.io/utils v0.0.0-20201110183641-67b214c5f920
 )
 
