@@ -1,6 +1,8 @@
 package node
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -15,6 +17,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	apimachinerytypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -22,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/util/taints"
 	utilnet "k8s.io/utils/net"
 
 	honode "github.com/ovn-org/ovn-kubernetes/go-controller/hybrid-overlay/pkg/controller"
@@ -256,6 +261,18 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 
 	klog.Infof("OVN Kube Node initialization, Mode: %s", config.OvnKubeNode.Mode)
 
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-n.stopChan
+		klog.Infof("Received node's stop channel signal. Adding network unavailable taint.")
+		// Add the NoSchedule Taint on the node, before ovnkube pod gets deleted. Ignore errors.
+		err := n.AddOrRemoveTaint(true)
+		if err != nil {
+			klog.Infof("Unsuccessful in adding k8s.ovn.org/network-unavailable taint on node %v: %v", n.name, err)
+		}
+	}()
+
 	// Setting debug log level during node bring up to expose bring up process.
 	// Log level is returned to configured value when bring up is complete.
 	var level klog.Level
@@ -468,6 +485,12 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		}
 	}
 
+	// Remove the NoSchedule Taint from the node, now that networking setup is done. Ignore errors.
+	err = n.AddOrRemoveTaint(false)
+	if err != nil {
+		klog.Infof("Unsuccessful in removing k8s.ovn.org/network-unavailable taint on node %v: %v", n.name, err)
+	}
+
 	if config.OvnKubeNode.Mode == types.NodeModeSmartNIC {
 		n.watchSmartNicPods(isOvnUpEnabled)
 	} else {
@@ -476,6 +499,62 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 	}
 
 	return err
+}
+
+//AddOrRemoveTaint adds or removes the network-unavailable taint on the node depending on the setTaint value
+func (n *OvnNode) AddOrRemoveTaint(setTaint bool) error {
+	action := ""
+	if setTaint {
+		action = "adding"
+	} else {
+		action = "removing"
+	}
+
+	node, err := n.Kube.GetNode(n.name)
+	networkUnavailableTaint := &kapi.Taint{Key: "k8s.ovn.org/network-unavailable", Value: "NoSchedule", Effect: "NoSchedule"}
+
+	if err != nil {
+		klog.Infof("Unable to retrieve node %s for %s taint: %v", n.name, action, err)
+		return err
+	}
+
+	nodeObjJson, err := json.Marshal(node)
+	if err != nil {
+		klog.Infof("Unable to marshal original node %s object for %s taint: %v", n.name, action, err)
+		return err
+	}
+
+	var taintedNodeObj *kapi.Node
+	if setTaint {
+		taintedNodeObj, _, err = taints.AddOrUpdateTaint(node, networkUnavailableTaint)
+	} else {
+		taintedNodeObj, _, err = taints.RemoveTaint(node, networkUnavailableTaint)
+	}
+
+	if err != nil {
+		klog.Infof("Unable to (un)taint node %s: %v", n.name, err)
+		return err
+	}
+
+	taintedNodeObjJson, err := json.Marshal(taintedNodeObj)
+	if err != nil {
+		klog.Infof("Unable to marshal updated node %s object for %s taint: %v", n.name, action, err)
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(nodeObjJson, taintedNodeObjJson, kapi.Node{})
+	if err != nil {
+		klog.Infof("Unable to patch the updated node %s object for %s taint: %v", n.name, action, err)
+		return err
+	}
+
+	if _, err = n.client.CoreV1().Nodes().Patch(context.TODO(), n.name, apimachinerytypes.StrategicMergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
+		klog.Infof("Unable to patch the updated node %s object for %s taint: %v", n.name, action, err)
+		return err
+	}
+
+	klog.Infof("Successful in %s k8s.ovn.org/network-unavailable taint on node %v", action, n.name)
+	return nil
 }
 
 func (n *OvnNode) WatchEndpoints() {
