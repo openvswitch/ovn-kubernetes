@@ -81,69 +81,64 @@ func newEgressFirewallRule(rawEgressFirewallRule egressfirewallapi.EgressFirewal
 	return efr, nil
 }
 
-// This function is used to sync egress firewall setup. It does three "cleanups"
+// This function is used to sync egress firewall setup. It does two cleanups
 
-// - 	Cleanup the old implementation (using LRP) in local GW mode -> new implementation (using ACLs) local GW mode
+// - 	Cleanup the old local GW mode implementation (using LRP)
 //  	For this it just deletes all LRP setup done for egress firewall
 
-// -	Cleanup the new local GW mode implementation (using ACLs on the node switch) -> shared GW mode implementation (using ACLs on the join switch)
-//  	For this it just deletes all ACL setup done for egress firewall on the node switches
-
-// -	Cleanup the old implementation (using LRP) in local GW mode -> shared GW mode implementation (using ACLs on the join switch)
-//  	For this it just deletes all LRP setup done for egress firewall
+// -	Cleanup the old shared GW mode implementation (using ACLs on the all switches with direction=from-lport)
+//  	For this it just deletes all the ACL setup done for egress firewall on all switches with direction=from-lport
 
 // NOTE: Utilize the fact that we know that all egress firewall related setup must have a priority: types.MinimumReservedEgressFirewallPriority <= priority <= types.EgressFirewallStartPriority
 func (oc *Controller) syncEgressFirewall(egressFirwalls []interface{}) {
-	if config.Gateway.Mode == config.GatewayModeShared {
-		// Mode is shared gateway mode, make sure to delete all ACLs on the node switches
-		egressFirewallACLIDs, stderr, err := util.RunOVNNbctl(
-			"--data=bare",
-			"--no-heading",
-			"--columns=_uuid",
-			"--format=table",
-			"find",
-			"acl",
-			fmt.Sprintf("priority<=%s", types.EgressFirewallStartPriority),
-			fmt.Sprintf("priority>=%s", types.MinimumReservedEgressFirewallPriority),
-		)
+	egressFirewallACLIDs, stderr, err := util.RunOVNNbctl(
+		"--data=bare",
+		"--no-heading",
+		"--columns=_uuid",
+		"--format=table",
+		"find",
+		"acl",
+		fmt.Sprintf("priority<=%s", types.EgressFirewallStartPriority),
+		fmt.Sprintf("priority>=%s", types.MinimumReservedEgressFirewallPriority),
+		fmt.Sprintf("direction=%s", types.DirectionFromLPort),
+	)
+	if err != nil {
+		klog.Errorf("Unable to list egress firewall logical router policies, cannot cleanup old stale data, stderr: %s, err: %v", stderr, err)
+		return
+	}
+	if egressFirewallACLIDs != "" {
+		nodes, err := oc.watchFactory.GetNodes()
 		if err != nil {
-			klog.Errorf("Unable to list egress firewall logical router policies, cannot cleanup old stale data, stderr: %s, err: %v", stderr, err)
+			klog.Errorf("Unable to cleanup egress firewall ACLs remaining from local gateway mode, cannot list nodes, err: %v", err)
 			return
 		}
-		if egressFirewallACLIDs != "" {
-			nodes, err := oc.watchFactory.GetNodes()
+		logicalSwitches := []string{types.OVNJoinSwitch}
+		for _, node := range nodes {
+			logicalSwitches = append(logicalSwitches, node.Name)
+		}
+		for _, logicalSwitch := range logicalSwitches {
+			switchACLs, stderr, err := util.RunOVNNbctl(
+				"--data=bare",
+				"--no-heading",
+				"--columns=acls",
+				"list",
+				"logical_switch",
+				logicalSwitch,
+			)
 			if err != nil {
-				klog.Errorf("Unable to cleanup egress firewall ACLs remaining from local gateway mode, cannot list nodes, err: %v", err)
-				return
+				klog.Errorf("Unable to remove egress firewall acl, cannot list ACLs on switch: %s, stderr: %s, err: %v", logicalSwitch, stderr, err)
 			}
-			logicalSwitches := []string{}
-			for _, node := range nodes {
-				logicalSwitches = append(logicalSwitches, node.Name)
-			}
-			for _, logicalSwitch := range logicalSwitches {
-				switchACLs, stderr, err := util.RunOVNNbctl(
-					"--data=bare",
-					"--no-heading",
-					"--columns=acls",
-					"list",
-					"logical_switch",
-					logicalSwitch,
-				)
-				if err != nil {
-					klog.Errorf("Unable to remove egress firewall acl, cannot list ACLs on switch: %s, stderr: %s, err: %v", logicalSwitch, stderr, err)
-				}
-				for _, egressFirewallACLID := range strings.Split(egressFirewallACLIDs, "\n") {
-					if strings.Contains(switchACLs, egressFirewallACLID) {
-						_, stderr, err := util.RunOVNNbctl(
-							"remove",
-							"logical_switch",
-							logicalSwitch,
-							"acls",
-							egressFirewallACLID,
-						)
-						if err != nil {
-							klog.Errorf("Unable to remove egress firewall acl: %s on %s, cannot cleanup old stale data, stderr: %s, err: %v", egressFirewallACLID, logicalSwitch, stderr, err)
-						}
+			for _, egressFirewallACLID := range strings.Split(egressFirewallACLIDs, "\n") {
+				if strings.Contains(switchACLs, egressFirewallACLID) {
+					_, stderr, err := util.RunOVNNbctl(
+						"remove",
+						"logical_switch",
+						logicalSwitch,
+						"acls",
+						egressFirewallACLID,
+					)
+					if err != nil {
+						klog.Errorf("Unable to remove egress firewall acl: %s on %s, cannot cleanup old stale data, stderr: %s, err: %v", egressFirewallACLID, logicalSwitch, stderr, err)
 					}
 				}
 			}
@@ -379,7 +374,7 @@ func (oc *Controller) createEgressFirewallRules(priority int, match, action, ext
 		if uuids == "" {
 			_, stderr, err := util.RunOVNNbctl("--id=@acl", "create", "acl",
 				fmt.Sprintf("priority=%d", priority),
-				fmt.Sprintf("direction=%s", types.DirectionFromLPort), match, "action="+action,
+				fmt.Sprintf("direction=%s", types.DirectionToLPort), match, "action="+action,
 				fmt.Sprintf("external-ids:egressFirewall=%s", externalID),
 				"--", "add", "logical_switch", logicalSwitch,
 				"acls", "@acl")
