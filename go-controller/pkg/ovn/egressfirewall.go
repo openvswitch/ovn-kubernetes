@@ -25,6 +25,11 @@ const (
 	egressFirewallUpdateError      = "EgressFirewall Rules not correctly updated"
 )
 
+var (
+	unknownIPv4Destination = "0.0.0.0/0"
+	unknownIPv6Destination = "::/0"
+)
+
 type egressFirewall struct {
 	name        string
 	namespace   string
@@ -252,8 +257,8 @@ func (oc *Controller) updateEgressFirewall(oldEgressFirewall, newEgressFirewall 
 
 	ipv4ASHashName, ipv6ASHashName := addressSet.GetASHashNames()
 	match := generateMatch(ipv4ASHashName, ipv6ASHashName, []matchTarget{
-		{matchKindV4CIDR, "0.0.0.0/0"},
-		{matchKindV6CIDR, "::/0"},
+		{matchKindV4CIDR, unknownIPv4Destination},
+		{matchKindV6CIDR, unknownIPv6Destination},
 	},
 		[]egressfirewallapi.EgressFirewallPort{},
 	)
@@ -466,7 +471,10 @@ func (m *matchTarget) toExpr() (string, error) {
 // generateMatch generates the "match" section of ACL generation for egressFirewallRules.
 // It is referentially transparent as all the elements have been validated before this function is called
 // sample output:
-// match=\"(ip4.dst == 1.2.3.4/32) && ip4.src == $testv4 && ip4.dst != 10.128.0.0/14\
+// match=\"(ip4.dst == 1.2.3.4/32) && ip4.src == $testv4\"
+// or
+// match=\"(ip4.dst == 8.0.0.0/6) && ip4.src == $testv4 && ip4.dst != 10.128.0.0/14\"
+// if a destination CIDR is specified which overlaps with any defined cluster subnet.
 func generateMatch(ipv4Source, ipv6Source string, destinations []matchTarget, dstPorts []egressfirewallapi.EgressFirewallPort) string {
 	var src string
 	var dst string
@@ -502,11 +510,14 @@ func generateMatch(ipv4Source, ipv6Source string, destinations []matchTarget, ds
 	}
 
 	if config.Gateway.Mode == config.GatewayModeLocal {
-		extraMatch = getClusterSubnetsExclusion()
+		extraMatch = getClusterSubnetsExclusion(destinations)
 	} else {
 		extraMatch = fmt.Sprintf("inport == \\\"%s%s\\\"", types.JoinSwitchToGWRouterPrefix, types.OVNClusterRouter)
 	}
-	return fmt.Sprintf("%s && %s\"", match, extraMatch)
+	if extraMatch != "" {
+		return fmt.Sprintf("%s && %s\"", match, extraMatch)
+	}
+	return fmt.Sprintf("%s\"", match)
 }
 
 // egressGetL4Match generates the rules for when ports are specified in an egressFirewall Rule
@@ -576,16 +587,28 @@ func egressGetL4Match(ports []egressfirewallapi.EgressFirewallPort) string {
 	return fmt.Sprintf("(%s)", l4Match)
 }
 
-func getClusterSubnetsExclusion() string {
+func getClusterSubnetsExclusion(destinations []matchTarget) string {
 	var exclusion string
-	for _, clusterSubnet := range config.Default.ClusterSubnets {
-		if exclusion != "" {
-			exclusion += " && "
-		}
-		if utilnet.IsIPv6CIDR(clusterSubnet.CIDR) {
-			exclusion += fmt.Sprintf("%s.dst != %s", "ip6", clusterSubnet.CIDR)
-		} else {
-			exclusion += fmt.Sprintf("%s.dst != %s", "ip4", clusterSubnet.CIDR)
+	for _, destination := range destinations {
+		for _, clusterSubnet := range config.Default.ClusterSubnets {
+			if destination.value != unknownIPv4Destination && destination.value != unknownIPv6Destination {
+				_, destinationNet, _ := net.ParseCIDR(destination.value)
+				if !destinationNet.Contains(clusterSubnet.CIDR.IP) && !clusterSubnet.CIDR.Contains(destinationNet.IP) {
+					continue
+				}
+			}
+			isSubnetIPv6 := utilnet.IsIPv6CIDR(clusterSubnet.CIDR)
+			isDestinationIPv6 := utilnet.IsIPv6CIDRString(destination.value)
+			if isSubnetIPv6 == isDestinationIPv6 {
+				if exclusion != "" {
+					exclusion += " && "
+				}
+				if isSubnetIPv6 && isDestinationIPv6 {
+					exclusion += fmt.Sprintf("%s.dst != %s", "ip6", clusterSubnet.CIDR)
+				} else if !isSubnetIPv6 && !isDestinationIPv6 {
+					exclusion += fmt.Sprintf("%s.dst != %s", "ip4", clusterSubnet.CIDR)
+				}
+			}
 		}
 	}
 	return exclusion
