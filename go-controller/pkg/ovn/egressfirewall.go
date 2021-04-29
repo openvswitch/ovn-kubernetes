@@ -383,10 +383,12 @@ func (oc *Controller) createEgressFirewallRules(priority int, match, action, ext
 			}
 		} else {
 			for _, uuid := range strings.Split(uuids, "\n") {
-				_, stderr, err := util.RunOVNNbctl("add", "logical_switch", logicalSwitch, "acls", uuid)
-				if err != nil {
-					return fmt.Errorf("error adding ACL to joinsSwitch %s failed, stderr: %q, %+v",
-						logicalSwitch, stderr, err)
+				if uuid != "" {
+					_, stderr, err := util.RunOVNNbctl("add", "logical_switch", logicalSwitch, "acls", uuid)
+					if err != nil {
+						return fmt.Errorf("error adding ACL to joinsSwitch %s failed, stderr: %q, %+v",
+							logicalSwitch, stderr, err)
+					}
 				}
 			}
 		}
