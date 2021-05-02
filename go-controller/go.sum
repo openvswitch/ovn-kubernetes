@@ -37,6 +37,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/Mellanox/sriovnet v1.0.2 h1:VTQHD7OHU6QejTtclt5a2obDfsW1ATRxTCgZmsiKmXI=
 github.com/Mellanox/sriovnet v1.0.2/go.mod h1:pXdSZwahlvP0Xn8nuXcVthBE38Nqf2czo449p5ALLXY=
+github.com/Mellanox/sriovnet v1.0.3-0.20210502102041-c1119c4015e9 h1:S/HH/EQGlpeXVv3IFe4aPukFKmR1v8w2p5ndWHYh6B0=
+github.com/Mellanox/sriovnet v1.0.3-0.20210502102041-c1119c4015e9/go.mod h1:pXdSZwahlvP0Xn8nuXcVthBE38Nqf2czo449p5ALLXY=
 github.com/Microsoft/go-winio v0.4.11/go.mod h1:VhR8bwka0BXejwEJY73c50VrPtXAaKcyvVC4A4RozmA=
 github.com/Microsoft/go-winio v0.4.15-0.20190919025122-fc70bd9a86b5 h1:ygIc8M6trr62pF5DucadTWGdEB4mEyvzi0e2nbcmcyA=
 github.com/Microsoft/go-winio v0.4.15-0.20190919025122-fc70bd9a86b5/go.mod h1:tTuCMEN+UleMWgg9dVx4Hu52b1bJo+59jBh3ajtinzw=
