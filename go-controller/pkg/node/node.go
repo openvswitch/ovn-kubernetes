@@ -268,6 +268,11 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		return fmt.Errorf("error retrieving node %s: %v", n.name, err)
 	}
 
+	nodeAddr, err := util.GetK8sNodeAddress(node)
+	if err != nil {
+		return err
+	}
+
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost {
 		for _, auth := range []config.OvnAuthConfig{config.OvnNorth, config.OvnSouth} {
 			if err := auth.SetDBAuth(); err != nil {
@@ -327,6 +332,13 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 			return err
 		}
 		klog.Infof("Management port ready.")
+		// Initialize gateway
+		err = n.initGatewaySmartNicHost(nodeAddr)
+		if err != nil {
+			return err
+		}
+		go n.gateway.Run(n.stopChan, wg)
+		klog.Infof("Gateway ready.")
 	} else {
 		if _, err = isOVNControllerReady(n.name); err != nil {
 			return err
@@ -340,7 +352,7 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		}
 
 		// Initialize gateway resources on the node
-		if err := n.initGateway(subnets, nodeAnnotator, waiter, mgmtPortConfig); err != nil {
+		if err := n.initGateway(subnets, nodeAnnotator, waiter, mgmtPortConfig, nodeAddr); err != nil {
 			return err
 		}
 
@@ -383,8 +395,10 @@ func (n *OvnNode) Start(wg *sync.WaitGroup) error {
 		if initialTopoVersion >= types.OvnHostToSvcOFTopoVersion && config.GatewayModeShared == config.Gateway.Mode {
 			// Configure route for svc towards shared gw bridge
 			// Have to have the route to bridge for multi-NIC mode, where the default gateway may go to a non-OVS interface
-			if err := configureSvcRouteViaBridge(bridgeName); err != nil {
-				return err
+			if config.OvnKubeNode.Mode == types.NodeModeFull {
+				if err := configureSvcRouteViaBridge(bridgeName); err != nil {
+					return err
+				}
 			}
 			needLegacySvcRoute = false
 		}
@@ -554,21 +568,7 @@ func configureSvcRouteViaBridge(bridge string) error {
 	if err != nil {
 		return fmt.Errorf("unable to get the gateway next hops, error: %v", err)
 	}
-	link, err := util.LinkSetUp(bridge)
-	if err != nil {
-		return fmt.Errorf("unable to get link for %s, error: %v", bridge, err)
-	}
-	for _, subnet := range config.Kubernetes.ServiceCIDRs {
-		gwIP, err := util.MatchIPFamily(utilnet.IsIPv6CIDR(subnet), gwIPs)
-		if err != nil {
-			return fmt.Errorf("unable to find gateway IP for subnet: %v, found IPs: %v", subnet, gwIPs)
-		}
-		err = util.LinkRoutesAdd(link, gwIP[0], []*net.IPNet{subnet})
-		if err != nil && !os.IsExist(err) {
-			return fmt.Errorf("unable to add route for service via shared gw bridge, error: %v", err)
-		}
-	}
-	return nil
+	return configureSvcRouteViaInterface(bridge, gwIPs)
 }
 
 func upgradeServiceRoute(bridgeName string) error {
