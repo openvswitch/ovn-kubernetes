@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"k8s.io/klog/v2"
@@ -157,15 +158,103 @@ func getGatewayNextHops() ([]net.IP, string, error) {
 	return gatewayNextHops, gatewayIntf, nil
 }
 
+// getSmartNICHostPrimaryIPAdresses returns the smart-nic host IP/Network based on K8s Node IP
+// and Smart-NIC IP subnet overriden by config config.Gateway.RouterSubnet
+func getSmartNICHostPrimaryIPAdresses(k8sNodeIP net.IP, ifAddrs []*net.IPNet) ([]*net.IPNet, error) {
+	// Note(adrianc): No Dual-Stack support at this point as we rely on k8s node IP to derrive gateway information
+	// for each node.
+	var gwIps []*net.IPNet
+	isIPv4 := utilnet.IsIPv4(k8sNodeIP)
+
+	// override subnet mask via config
+	if config.Gateway.RouterSubnet != "" {
+		_, addr, err := net.ParseCIDR(config.Gateway.RouterSubnet)
+		if err != nil {
+			return nil, err
+		}
+		if utilnet.IsIPv4CIDR(addr) != isIPv4 {
+			return nil, fmt.Errorf("unexpected gateway router subnet provided (%s). "+
+				"does not match Node IP address format", config.Gateway.RouterSubnet)
+		}
+		if !addr.Contains(k8sNodeIP) {
+			return nil, fmt.Errorf("unexpected gateway router subnet provided (%s). "+
+				"subnet does not contain Node IP address (%s)", config.Gateway.RouterSubnet, k8sNodeIP)
+		}
+		addr.IP = k8sNodeIP
+		gwIps = append(gwIps, addr)
+	} else {
+		// Assume Host and Smart-NIC share the same subnet
+		// in this case just update the matching IPNet with the Host's IP address
+		for _, addr := range ifAddrs {
+			if utilnet.IsIPv4CIDR(addr) != isIPv4 {
+				continue
+			}
+			// expect k8s Node IP to be contained in the given subnet
+			if !addr.Contains(k8sNodeIP) {
+				continue
+			}
+			newAddr := *addr
+			newAddr.IP = k8sNodeIP
+			gwIps = append(gwIps, &newAddr)
+		}
+		if len(gwIps) == 0 {
+			return nil, fmt.Errorf("could not find subnet on Smart-NIC matching node IP %s", k8sNodeIP)
+		}
+	}
+	return gwIps, nil
+}
+
+// getInterfaceByIP retrieves Interface that has `ip` assigned to it
+func getInterfaceByIP(ip net.IP) (string, error) {
+	links, err := util.GetNetLinkOps().LinkList()
+	if err != nil {
+		return "", fmt.Errorf("failed to list network devices in the system. %v", err)
+	}
+
+	for _, link := range links {
+		ips, err := util.GetNetworkInterfaceIPs(link.Attrs().Name)
+		if err != nil {
+			return "", err
+		}
+		for _, netdevIp := range ips {
+			if netdevIp.Contains(ip) {
+				return link.Attrs().Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("failed to find network interface with IP: %s", ip)
+}
+
+// configureSvcRouteViaInterface routes svc traffic through the provided interface
+func configureSvcRouteViaInterface(iface string, gwIPs []net.IP) error {
+	link, err := util.LinkSetUp(iface)
+	if err != nil {
+		return fmt.Errorf("unable to get link for %s, error: %v", iface, err)
+	}
+
+	for _, subnet := range config.Kubernetes.ServiceCIDRs {
+		gwIP, err := util.MatchIPFamily(utilnet.IsIPv6CIDR(subnet), gwIPs)
+		if err != nil {
+			return fmt.Errorf("unable to find gateway IP for subnet: %v, found IPs: %v", subnet, gwIPs)
+		}
+		err = util.LinkRoutesAdd(link, gwIP[0], []*net.IPNet{subnet})
+		if err != nil && !os.IsExist(err) {
+			return fmt.Errorf("unable to add route for service via %s, error: %v", iface, err)
+		}
+	}
+	return nil
+}
+
 func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator,
-	waiter *startupWaiter, managementPortConfig *managementPortConfig) error {
+	waiter *startupWaiter, managementPortConfig *managementPortConfig, nodeIP net.IP) error {
 	klog.Info("Initializing Gateway Functionality")
 	var err error
+	var ifAddrs []*net.IPNet
 
 	var loadBalancerHealthChecker *loadBalancerHealthChecker
 	var portClaimWatcher *portClaimWatcher
 
-	if config.Gateway.NodeportEnable {
+	if config.Gateway.NodeportEnable && config.OvnKubeNode.Mode == types.NodeModeFull {
 		loadBalancerHealthChecker = newLoadBalancerHealthChecker(n.name)
 		portClaimWatcher, err = newPortClaimWatcher(n.recorder)
 		if err != nil {
@@ -178,13 +267,23 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 		return err
 	}
 
-	ifAddrs, err := getNetworkInterfaceIPAddresses(gatewayIntf)
+	ifAddrs, err = getNetworkInterfaceIPAddresses(gatewayIntf)
 	if err != nil {
 		return err
 	}
 
+	// For smart-NIC need to use the host IP addr which currently is assumed to be K8s Node cluster
+	// internal IP address.
+	if config.OvnKubeNode.Mode == types.NodeModeSmartNIC {
+		ifAddrs, err = getSmartNICHostPrimaryIPAdresses(nodeIP, ifAddrs)
+		if err != nil {
+			return err
+		}
+	}
+
 	v4IfAddr, _ := util.MatchIPNetFamily(false, ifAddrs)
 	v6IfAddr, _ := util.MatchIPNetFamily(true, ifAddrs)
+
 	if err := util.SetNodePrimaryIfAddr(nodeAnnotator, v4IfAddr, v6IfAddr); err != nil {
 		klog.Errorf("Unable to set primary IP net label on node, err: %v", err)
 	}
@@ -196,7 +295,7 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 		gw, err = newLocalGateway(n.name, subnets, gatewayNextHops, gatewayIntf, nodeAnnotator, n.recorder, managementPortConfig)
 	case config.GatewayModeShared:
 		klog.Info("Preparing Shared Gateway")
-		gw, err = newSharedGateway(n.name, subnets, gatewayNextHops, gatewayIntf, nodeAnnotator)
+		gw, err = newSharedGateway(n.name, subnets, gatewayNextHops, gatewayIntf, ifAddrs, nodeAnnotator)
 	case config.GatewayModeDisabled:
 		var chassisID string
 		klog.Info("Gateway Mode is disabled")
@@ -221,7 +320,7 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 	// value was nil by comparing the interface to nil. this is because if the value is `nil`,
 	// then the interface will still hold the type of the value being set.
 
-	if config.Gateway.Mode == config.GatewayModeShared {
+	if config.Gateway.Mode == config.GatewayModeShared && config.OvnKubeNode.Mode == types.NodeModeFull {
 		gw.nodeIPManager = newAddressManager(nodeAnnotator, managementPortConfig)
 	}
 
@@ -236,6 +335,66 @@ func (n *OvnNode) initGateway(subnets []*net.IPNet, nodeAnnotator kube.Annotator
 	}
 
 	waiter.AddWait(gw.readyFunc, initGw)
+	n.gateway = gw
+	return err
+}
+
+func (n *OvnNode) initGatewaySmartNicHost(nodeIP net.IP) error {
+	// A smart NIC host gateway is complementary to the shared gateway running
+	// on the Smart-NIC embedded CPU. it performs some initializations and
+	// watch on services for iptable rule updates and run a loadBalancerHealth checker
+	// Note: all K8s Node related annotations are handled from Smart-NIC.
+	klog.Info("Initializing Shared Gateway Functionality on Smart-NIC host")
+	var err error
+
+	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost || config.Gateway.Mode != config.GatewayModeShared {
+		return fmt.Errorf("smart-nic gateway is only supported for shared gateway mode running on the" +
+			"smart-nic host")
+	}
+
+	// Force gateway interface to be the interface associated with nodeIP
+	gwIntf, err := getInterfaceByIP(nodeIP)
+	if err != nil {
+		return err
+	}
+	config.Gateway.Interface = gwIntf
+
+	gatewayNextHops, gatewayIntf, err := getGatewayNextHops()
+	if err != nil {
+		return err
+	}
+
+	err = addMasqueradeRoutes(gatewayIntf, gatewayNextHops)
+	if err != nil {
+		return err
+	}
+
+	err = configureSvcRouteViaInterface(gatewayIntf, gatewayNextHops)
+	if err != nil {
+		return err
+	}
+
+	gw := &gateway{
+		initFunc:  func() error { return nil },
+		readyFunc: func() (bool, error) { return true, nil },
+	}
+
+	// TODO(adrianc): revisite if support for nodeIPManager is needed.
+
+	if config.Gateway.NodeportEnable {
+		if err := initSharedGatewayIPTables(); err != nil {
+			return err
+		}
+		gw.nodePortWatcher = newNodePortWatcherIptables()
+		gw.loadBalancerHealthChecker = newLoadBalancerHealthChecker(n.name)
+		portClaimWatcher, err := newPortClaimWatcher(n.recorder)
+		if err != nil {
+			return err
+		}
+		gw.portClaimWatcher = portClaimWatcher
+	}
+
+	err = gw.Init(n.watchFactory)
 	n.gateway = gw
 	return err
 }

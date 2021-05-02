@@ -172,7 +172,7 @@ func (g *gateway) Run(stopChan <-chan struct{}, wg *sync.WaitGroup) {
 	}
 }
 
-func gatewayInitInternal(nodeName, gwIntf string, subnets []*net.IPNet, gwNextHops []net.IP, nodeAnnotator kube.Annotator) (
+func gatewayInitInternal(nodeName, gwIntf string, subnets []*net.IPNet, gwNextHops []net.IP, gwIPs []*net.IPNet, nodeAnnotator kube.Annotator) (
 	string, string, net.HardwareAddr, []*net.IPNet, error) {
 
 	var bridgeName string
@@ -227,6 +227,20 @@ func gatewayInitInternal(nodeName, gwIntf string, subnets []*net.IPNet, gwNextHo
 	chassisID, err := util.GetNodeChassisID()
 	if err != nil {
 		return bridgeName, uplinkName, nil, nil, err
+	}
+
+	if config.OvnKubeNode.Mode == types.NodeModeSmartNIC {
+		// for smart-NIC we use the host IP/subnet provided by gwIPs
+		// as well as the host MAC address for the Gateway configuration
+		ips = gwIPs
+		hostRep, err := util.GetSmartNICHostInterface(bridgeName)
+		if err != nil {
+			return bridgeName, uplinkName, nil, nil, err
+		}
+		macAddress, err = util.GetSriovnetOps().GetRepresentorMacAddress(hostRep)
+		if err != nil {
+			return bridgeName, uplinkName, nil, nil, err
+		}
 	}
 
 	err = util.SetL3GatewayConfig(nodeAnnotator, &util.L3GatewayConfig{
