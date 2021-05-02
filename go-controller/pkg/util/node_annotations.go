@@ -309,3 +309,17 @@ func ParseNodeHostAddresses(node *kapi.Node) (sets.String, error) {
 
 	return sets.NewString(cfg...), nil
 }
+
+// GetK8sNodeAddress returns the K8s Node's Cluster internal IP address
+func GetK8sNodeAddress(node *kapi.Node) (net.IP, error) {
+	for _, nAddr := range node.Status.Addresses {
+		if nAddr.Type == kapi.NodeInternalIP {
+			ip := net.ParseIP(nAddr.Address)
+			if ip == nil {
+				return nil, fmt.Errorf("failed to parse k8s node object IP address")
+			}
+			return ip, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to get k8s node object internal IP address")
+}
