@@ -282,6 +282,9 @@ type GatewayConfig struct {
 	V4JoinSubnet string `gcfg:"v4-join-subnet"`
 	// V6JoinSubnet to be used in the cluster
 	V6JoinSubnet string `gcfg:"v6-join-subnet"`
+	// RouterSubnet is the subnet to be used for the GR external port. auto-detected if not given.
+	// Currently valid for Smart-NICs only.
+	RouterSubnet string `gcfg:"router-subnet"`
 }
 
 // OvnAuthConfig holds client authentication and location details for
@@ -909,6 +912,13 @@ var OVNGatewayFlags = []cli.Flag{
 		Usage:       "The v6 join subnet used for assigning join switch IPv6 addresses",
 		Destination: &cliConfig.Gateway.V6JoinSubnet,
 		Value:       Gateway.V6JoinSubnet,
+	},
+	&cli.StringFlag{
+		Name: "gateway-router-subnet",
+		Usage: "The Subnet to be used for the gateway router external port (shared mode only). " +
+			"auto-detected if not given",
+		Destination: &cliConfig.Gateway.RouterSubnet,
+		Value:       Gateway.RouterSubnet,
 	},
 	// Deprecated CLI options
 	&cli.BoolFlag{

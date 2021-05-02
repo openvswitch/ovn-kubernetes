@@ -49,6 +49,7 @@ fi
 # OVN_NORTHD_OPTS - the options for the ovn northbound db
 # OVN_GATEWAY_MODE - the gateway mode (shared or local) - v3
 # OVN_GATEWAY_OPTS - the options for the ovn gateway
+# OVN_GATEWAY_ROUTER_SUBNET - the gateway router subnet (shared mode, Smart-NIC only) - v3
 # OVNKUBE_LOGLEVEL - log level for ovnkube (0..5, default 4) - v3
 # OVN_LOGLEVEL_NORTHD - log level (ovn-ctl default: -vconsole:emer -vsyslog:err -vfile:info) - v3
 # OVN_LOGLEVEL_NB - log level (ovn-ctl default: -vconsole:off -vfile:info) - v3
@@ -151,6 +152,7 @@ ovnkube_loglevel=${OVNKUBE_LOGLEVEL:-4}
 # two gateway modes that we support using `images/daemonset.sh` tool
 ovn_gateway_mode=${OVN_GATEWAY_MODE:-"shared"}
 ovn_gateway_opts=${OVN_GATEWAY_OPTS:-""}
+ovn_gateway_router_subnet=${OVN_GATEWAY_ROUTER_SUBNET:-""}
 
 net_cidr=${OVN_NET_CIDR:-10.128.0.0/14/23}
 svc_cidr=${OVN_SVC_CIDR:-172.30.0.0/16}
@@ -493,6 +495,7 @@ display_env() {
   echo OVN_LOGLEVEL_CONTROLLER ${ovn_loglevel_controller}
   echo OVN_GATEWAY_MODE ${ovn_gateway_mode}
   echo OVN_GATEWAY_OPTS ${ovn_gateway_opts}
+  echo OVN_GATEWAY_ROUTER_SUBNET ${ovn_gateway_router_subnet}
   echo OVN_NET_CIDR ${net_cidr}
   echo OVN_SVC_CIDR ${svc_cidr}
   echo OVN_NB_PORT ${ovn_nb_port}
@@ -1101,6 +1104,7 @@ ovn-node() {
     ${hybrid_overlay_flags} \
     ${disable_snat_multiple_gws_flag} \
     --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
+    --gateway-router-subnet=${ovn_gateway_router_subnet} \
     --pidfile ${OVN_RUNDIR}/ovnkube.pid \
     --logfile /var/log/ovn-kubernetes/ovnkube.log \
     ${ovn_node_ssl_opts} \
