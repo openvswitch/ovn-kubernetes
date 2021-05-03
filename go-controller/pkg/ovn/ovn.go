@@ -916,7 +916,7 @@ func (oc *Controller) syncNodeGateway(node *kapi.Node, hostSubnets []*net.IPNet)
 		var hostAddrs sets.String
 		if config.Gateway.Mode == config.GatewayModeShared {
 			hostAddrs, err = util.ParseNodeHostAddresses(node)
-			if err != nil {
+			if err != nil && !util.IsAnnotationNotSetError(err) {
 				return fmt.Errorf("failed to get host addresses for node: %s: %v", node.Name, err)
 			}
 		}
