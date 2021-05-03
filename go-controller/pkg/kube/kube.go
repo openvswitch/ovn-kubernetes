@@ -31,7 +31,7 @@ type Interface interface {
 	GetEgressIP(name string) (*egressipv1.EgressIP, error)
 	GetEgressIPs() (*egressipv1.EgressIPList, error)
 	GetNamespaces(labelSelector metav1.LabelSelector) (*kapi.NamespaceList, error)
-	GetPods(namespace string, labelSelector metav1.LabelSelector) (*kapi.PodList, error)
+	GetPods(namespace string, labelSelector metav1.LabelSelector, fieldSelector string) (*kapi.PodList, error)
 	GetNode(name string) (*kapi.Node, error)
 	GetEndpoint(namespace, name string) (*kapi.Endpoints, error)
 	CreateEndpoint(namespace string, ep *kapi.Endpoints) (*kapi.Endpoints, error)
@@ -164,10 +164,11 @@ func (k *Kube) GetNamespaces(labelSelector metav1.LabelSelector) (*kapi.Namespac
 	})
 }
 
-// GetPods returns the list of all Pod objects in a namespace matching the labelSelector
-func (k *Kube) GetPods(namespace string, labelSelector metav1.LabelSelector) (*kapi.PodList, error) {
+// GetPods returns the list of all Pod objects in a namespace matching the labelSelector and fieldSelector
+func (k *Kube) GetPods(namespace string, labelSelector metav1.LabelSelector, fieldSelector string) (*kapi.PodList, error) {
 	return k.KClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
+		FieldSelector: fieldSelector,
 	})
 }
 
