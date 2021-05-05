@@ -1,12 +1,12 @@
 package services
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
 	"strings"
 	"sync"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 )
 
@@ -25,25 +25,29 @@ func splitVirtualIPKey(key string) (string, v1.Protocol) {
 	return parts[0], v1.Protocol(parts[1])
 }
 
+// vipOVNLBMap is used to track vips to OVN load balancers
+type loadbalancersPerVip map[string]string
+
 // serviceTracker tracks the services VIPs using the service name and namespace as key
 // one service can have multiple VIPs, they are stored in the format IP:Port/Protocol
-// The services allows to map Kubernetes Services and OVN LoadBalancer
+// The services allows mapping between Kubernetes Services and OVN LoadBalancer
 type serviceTracker struct {
 	sync.Mutex
-	virtualIPByService map[string]sets.String
+	// holds a map of service mapping to map of vips and loadbalancers
+	virtualIPByService map[string]loadbalancersPerVip
 	hadEndpoints       map[string]bool
 }
 
 // newServiceTracker creates and initializes a new serviceTracker.
 func newServiceTracker() *serviceTracker {
 	return &serviceTracker{
-		virtualIPByService: map[string]sets.String{},
+		virtualIPByService: map[string]loadbalancersPerVip{},
 		hadEndpoints:       map[string]bool{},
 	}
 }
 
 // updateService adds or updates the virtualIPs and endpoints of the Service
-func (st *serviceTracker) updateService(name, namespace, virtualIP string, proto v1.Protocol) {
+func (st *serviceTracker) updateService(name, namespace, virtualIP string, proto v1.Protocol, loadBalancer string) {
 	st.Lock()
 	defer st.Unlock()
 
@@ -54,11 +58,11 @@ func (st *serviceTracker) updateService(name, namespace, virtualIP string, proto
 	vips, ok := st.virtualIPByService[serviceNN]
 	if !ok || vips == nil {
 		klog.V(5).Infof("Created service %s VIP %s %s on Service Tracker", serviceNN, virtualIP, proto)
-		st.virtualIPByService[serviceNN] = sets.NewString(key)
+		st.virtualIPByService[serviceNN] = loadbalancersPerVip{key: loadBalancer}
 		return
 	}
 	// Update the service VIP with the new endpoints
-	vips.Insert(key)
+	vips[key] = loadBalancer
 	klog.V(5).Infof("Updated service %s VIP %s %s on Service Tracker", serviceNN, virtualIP, proto)
 }
 
@@ -82,7 +86,7 @@ func (st *serviceTracker) deleteServiceVIP(name, namespace, virtualIP string, pr
 	key := virtualIPKey(virtualIP, proto)
 	vips, ok := st.virtualIPByService[serviceNN]
 	if ok {
-		vips.Delete(key)
+		delete(vips, key)
 		klog.V(5).Infof("Deleted service %s VIP %s %s from Service Tracker", serviceNN, virtualIP, proto)
 	}
 }
@@ -119,7 +123,8 @@ func (st *serviceTracker) hasServiceVIP(name, namespace, virtualIP string, proto
 	if !ok {
 		return false
 	}
-	return vips.Has(key)
+	_, ok = vips[key]
+	return ok
 }
 
 // getService return the service VIPs associated to the service
@@ -130,18 +135,33 @@ func (st *serviceTracker) getService(name, namespace string) sets.String {
 	serviceNN := serviceTrackerKey(name, namespace)
 	if vips, ok := st.virtualIPByService[serviceNN]; ok {
 		klog.V(5).Infof("Obtained service %s on Service Tracker: %v", serviceNN, vips)
-		return vips
+		return sets.StringKeySet(vips)
 	}
 	return sets.NewString()
 }
 
 // updateKubernetesService adds or updates the tracker from a Kubernetes service
 // added for testing purposes
-func (st *serviceTracker) updateKubernetesService(service *v1.Service) {
+func (st *serviceTracker) updateKubernetesService(service *v1.Service, loadbalancer string) {
 	for _, ip := range util.GetClusterIPs(service) {
 		for _, svcPort := range service.Spec.Ports {
 			vip := util.JoinHostPortInt32(ip, svcPort.Port)
-			st.updateService(service.Name, service.Namespace, vip, svcPort.Protocol)
+			st.updateService(service.Name, service.Namespace, vip, svcPort.Protocol, loadbalancer)
 		}
 	}
+}
+
+// GetLoadBalancer return the OVN LoadBalancer associated with a service VIP
+func (st *serviceTracker) getLoadBalancer(name, namespace, vipProtocol string) string {
+	st.Lock()
+	defer st.Unlock()
+	serviceNN := serviceTrackerKey(name, namespace)
+	if vips, ok := st.virtualIPByService[serviceNN]; ok {
+		if lb, ok := vips[vipProtocol]; ok {
+			klog.V(5).Infof("Obtained load balancer: %s for service %s with vipProtocol: %s",
+				serviceNN, vipProtocol)
+			return lb
+		}
+	}
+	return ""
 }

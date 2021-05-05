@@ -34,6 +34,9 @@ func deleteVIPsFromAllOVNBalancers(vips sets.String, name, namespace string) err
 // the idling ones. This includes the cluster loadbalancer, the gateway routers loadbalancers
 // and the node switch ones.
 func deleteVIPsFromNonIdlingOVNBalancers(vips sets.String, name, namespace string) error {
+	if len(vips) == 0 {
+		return nil
+	}
 	// NodePort and ExternalIPs use loadbalancers in each node
 	gatewayRouters, _, err := gateway.GetOvnGateways()
 	if err != nil {
@@ -85,17 +88,18 @@ func deleteVIPsFromNonIdlingOVNBalancers(vips sets.String, name, namespace strin
 	return nil
 }
 
-func deleteVIPsFromIdlingBalancer(vips sets.String, name, namespace string) error {
+func deleteVIPsFromIdlingBalancer(vipProtocols sets.String, name, namespace string) error {
 	// The idling lb is enabled only when configured
 	if !config.Kubernetes.OVNEmptyLbEvents {
 		return nil
 	}
 
 	// Obtain the VIPs associated to the Service
-	for _, vipKey := range vips.List() {
+	for vipKey := range vipProtocols {
 		// the VIP is stored with the format IP:Port/Protocol
 		vip, proto := splitVirtualIPKey(vipKey)
-		klog.Infof("Deleting VIP from idling OVN LoadBalancer for service %s on namespace %s", name, namespace)
+		klog.Infof("Deleting VIP: %s from idling OVN LoadBalancer for service %s on namespace %s",
+			vip, name, namespace)
 		lbID, err := loadbalancer.GetOVNKubeIdlingLoadBalancer(proto)
 		if err != nil {
 			klog.Errorf("Error getting OVN idling LoadBalancer for protocol %s %v", proto, err)

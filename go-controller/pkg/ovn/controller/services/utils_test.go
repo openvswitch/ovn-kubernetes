@@ -31,14 +31,9 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 		{
 			name: "empty",
 			args: args{
-				vips: sets.NewString(),
-				svc:  &v1.Service{},
-				ovnCmd: []ovntest.ExpectedCmd{
-					{
-						Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=name find logical_router options:chassis!=null",
-						Output: gatewayRouter1,
-					},
-				},
+				vips:   sets.NewString(),
+				svc:    &v1.Service{},
+				ovnCmd: []ovntest.ExpectedCmd{},
 			},
 			wantErr: false,
 		},
@@ -106,7 +101,7 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := newServiceTracker()
 			if len(tt.args.svc.Spec.ClusterIP) > 0 {
-				st.updateKubernetesService(tt.args.svc)
+				st.updateKubernetesService(tt.args.svc, "")
 			}
 			// Expected OVN commands
 			fexec := ovntest.NewFakeExec()
@@ -121,7 +116,6 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 			if err := deleteVIPsFromAllOVNBalancers(tt.args.vips, tt.args.svc.Name, tt.args.svc.Namespace); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVIPsFromOVN() error = %v, wantErr %v", err, tt.wantErr)
 			}
-
 			if !fexec.CalledMatchesExpected() {
 				t.Error(fexec.ErrorDesc())
 			}

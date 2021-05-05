@@ -234,7 +234,7 @@ func (c *Controller) syncServices(key string) error {
 	// These are the VIPs (ClusterIP:Port) that we have seen so far
 	// If the Service has updated the VIPs (has changed the Ports)
 	// and some were removed we have to delete those
-	// We need to create a NewString set to not mutate the service tracker VIPs
+	// We need to create a map to not mutate the service tracker VIPs
 	vipsTracked := sets.NewString().Union(c.serviceTracker.getService(name, namespace))
 	// Delete the Service VIPs from OVN if:
 	// - the Service was deleted from the cache (doesn't exist in Kubernetes anymore)
@@ -269,16 +269,23 @@ func (c *Controller) syncServices(key string) error {
 	// generates a needPods event.
 	// if not, we delete the vips from the idling lb and move them to their right place.
 
-	vips := collectServiceVIPs(service)
+	vipProtocols := collectServiceVIPs(service)
 	if svcNeedsIdling(service.Annotations) && !util.HasValidEndpoint(service, endpointSlices) {
-		err = c.addServiceToIdlingBalancer(vips, service)
+		// addServiceToIdlingBalancer adds the vips to service tracker
+		err = c.addServiceToIdlingBalancer(vipProtocols, service)
 		if err != nil {
 			c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToAddToIdlingBalancer",
 				"Error trying to add to Idling LoadBalancer for Service %s/%s: %v", name, namespace, err)
 			return err
 		}
-		vipsTracked = vipsTracked.Delete(vips.List()...)
-		err = deleteVIPsFromNonIdlingOVNBalancers(vips, name, namespace)
+		toRemoveFromNonIdling := sets.NewString()
+		for vipProtocol := range vipProtocols {
+			if c.serviceTracker.getLoadBalancer(name, namespace, vipProtocol) != loadbalancer.IdlingLoadBalancer {
+				toRemoveFromNonIdling.Insert(vipProtocol)
+			}
+			vipsTracked.Delete(vipProtocol)
+		}
+		err = deleteVIPsFromNonIdlingOVNBalancers(toRemoveFromNonIdling, name, namespace)
 		if err != nil {
 			c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToDeleteOVNLoadBalancer",
 				"Error trying to delete the OVN LoadBalancer while setting up Idling for Service %s/%s: %v", name, namespace, err)
@@ -289,7 +296,16 @@ func (c *Controller) syncServices(key string) error {
 		return nil
 	}
 
-	err = deleteVIPsFromIdlingBalancer(vips, name, namespace)
+	toRemoveFromIdling := sets.NewString()
+	for vipProtocol := range vipProtocols {
+		foundLb := c.serviceTracker.getLoadBalancer(name, namespace, vipProtocol)
+		// if vip was on an idling load balancer and we get here, we know we need to clean up
+		// if the value is empty (unknown what load balancer the vip may have existed on) also need to clean up
+		if len(foundLb) == 0 || foundLb == loadbalancer.IdlingLoadBalancer {
+			toRemoveFromIdling.Insert(vipProtocol)
+		}
+	}
+	err = deleteVIPsFromIdlingBalancer(toRemoveFromIdling, name, namespace)
 	if err != nil {
 		c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToDeleteOVNLoadBalancer",
 			"Error trying to delete the idling OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
@@ -317,36 +333,43 @@ func (c *Controller) syncServices(key string) error {
 			eps := util.GetLbEndpoints(endpointSlices, svcPort, family)
 			// Reconcile OVN, update the load balancer with current endpoints
 
+			var currentLB string
 			// If any of the lbEps contain the a host IP we add to worker/GR LB separately, and not to cluster LB
 			if hasHostEndpoints(eps.IPs) && config.Gateway.Mode == config.GatewayModeShared {
+				currentLB = loadbalancer.NodeLoadBalancer
 				if err := createPerNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port, eps.IPs, eps.Port); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
 					return err
 				}
-				// Need to ensure that if vip exists on cluster LB we remove it
-				// This can happen if endpoints originally had cluster only ips but now have host ips
-				if err := loadbalancer.DeleteLoadBalancerVIP(clusterLB, vip); err != nil {
-					klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, clusterLB)
-					return err
+				if c.serviceTracker.getLoadBalancer(name, namespace, vip) != currentLB {
+					// Need to ensure that if vip exists on cluster LB we remove it
+					// This can happen if endpoints originally had cluster only ips but now have host ips
+					if err := loadbalancer.DeleteLoadBalancerVIP(clusterLB, vip); err != nil {
+						klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, clusterLB)
+						return err
+					}
 				}
 			} else {
+				currentLB = clusterLB
 				if err = loadbalancer.CreateLoadBalancerVIPs(clusterLB, []string{ip}, svcPort.Port, eps.IPs, eps.Port); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
 					return err
 				}
-				// Need to ensure if this vip exists in the worker LBs that we remove it
-				// This can happen if the endpoints originally had host eps but now have cluster only ips
-				if err := deleteNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port); err != nil {
-					klog.Errorf("Error deleting VIP %s on per node load balancers, error: %v", vip, err)
-					return err
+				if c.serviceTracker.getLoadBalancer(name, namespace, virtualIPKey(vip, svcPort.Protocol)) != currentLB {
+					// Need to ensure if this vip exists in the worker LBs that we remove it
+					// This can happen if the endpoints originally had host eps but now have cluster only ips
+					if err := deleteNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port); err != nil {
+						klog.Errorf("Error deleting VIP %s on per node load balancers, error: %v", vip, err)
+						return err
+					}
 				}
 			}
 			// update the tracker with the VIP
-			c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol)
+			c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol, currentLB)
 			// mark the vip as processed
-			vipsTracked = vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
+			vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
 
 			// Node Port
 			if svcPort.NodePort != 0 {
@@ -363,9 +386,9 @@ func (c *Controller) syncServices(key string) error {
 				}
 				for _, nodeIP := range nodeIPs {
 					vip := util.JoinHostPortInt32(nodeIP, svcPort.NodePort)
-					c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol)
+					c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol, loadbalancer.NodeLoadBalancer)
 					// mark the vip as processed
-					vipsTracked = vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
+					vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
 				}
 			}
 
@@ -394,9 +417,9 @@ func (c *Controller) syncServices(key string) error {
 				}
 				for _, extIP := range externalIPs {
 					vip := util.JoinHostPortInt32(extIP, svcPort.Port)
-					c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol)
+					c.serviceTracker.updateService(name, namespace, vip, svcPort.Protocol, loadbalancer.NodeLoadBalancer)
 					// mark the vip as processed
-					vipsTracked = vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
+					vipsTracked.Delete(virtualIPKey(vip, svcPort.Protocol))
 				}
 			}
 		}
@@ -427,7 +450,7 @@ func (c *Controller) addServiceToIdlingBalancer(vips sets.String, service *v1.Se
 			return errors.Wrapf(err, "Failed to update idling loadbalancer")
 		}
 		// update the tracker with the VIP
-		c.serviceTracker.updateService(service.Name, service.Namespace, vip, protocol)
+		c.serviceTracker.updateService(service.Name, service.Namespace, vip, protocol, loadbalancer.IdlingLoadBalancer)
 	}
 	return nil
 }

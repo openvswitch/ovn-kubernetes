@@ -15,6 +15,13 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	// used to indicate if the service is running on node load balancers
+	NodeLoadBalancer = "NodeLoadBalancer"
+	// used to indicate if the service is running on idling load balancers
+	IdlingLoadBalancer = "IdlingLoadBalancer"
+)
+
 type NotFoundError struct {
 	What string
 }
@@ -30,7 +37,7 @@ func GetOVNKubeLoadBalancer(protocol kapi.Protocol) (string, error) {
 	return getLoadBalancerByProtocolType(protocol, types.ClusterLBPrefix)
 }
 
-// GetOVNKubeLoadBalancer returns the LoadBalancer matching the protocol
+// GetOVNKubeIdlingLoadBalancer returns the LoadBalancer matching the protocol
 func GetOVNKubeIdlingLoadBalancer(protocol kapi.Protocol) (string, error) {
 	return getLoadBalancerByProtocolType(protocol, types.ClusterIdlingLBPrefix)
 }
