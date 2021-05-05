@@ -291,6 +291,15 @@ func (c *Controller) syncServices(key string) error {
 				"Error trying to delete the OVN LoadBalancer while setting up Idling for Service %s/%s: %v", name, namespace, err)
 			return err
 		}
+		// at this point we have processed all vips we've found in the service
+		// so the remaining ones that we had in the vipsTracked variable should be deleted
+		// We remove them from OVN and from the tracker
+		err = deleteVIPsFromAllOVNBalancers(vipsTracked, name, namespace)
+		if err != nil {
+			c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToDeleteOVNLoadBalancer",
+				"Error trying to delete the OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
+			return err
+		}
 		// Delete the Service VIP from the Service Tracker
 		c.serviceTracker.deleteServiceVIPs(name, namespace, vipsTracked)
 		return nil
