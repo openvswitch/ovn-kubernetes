@@ -41,6 +41,7 @@ COPY ovn-k8s-cni-overlay /usr/libexec/cni/ovn-k8s-cni-overlay
 # ovnkube.sh is the entry point. This script examines environment
 # variables to direct operation and configure ovn
 COPY ovnkube.sh /root/
+COPY ovnkube-cno-master.sh /root/
 COPY ovndb-raft-functions.sh /root/
 
 # copy git commit number into image
