@@ -278,12 +278,15 @@ func runOvnKube(ctx *cli.Context) error {
 	// start the prometheus server to serve OVN K8s Metrics (default master port: 9409, node port: 9410)
 	if config.Kubernetes.MetricsBindAddress != "" {
 		metrics.StartMetricsServer(config.Kubernetes.MetricsBindAddress, config.Kubernetes.MetricsEnablePprof)
+		if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost && config.Kubernetes.OVNMetricsBindAddress == "" {
+			metrics.RegisterOvnMetrics(ovnClientset.KubeClient, master)
+		}
 	}
 
 	// start the prometheus server to serve OVN Metrics (default port: 9476)
 	// Note: for ovnkube node mode smart-nic-host no ovn metrics is required as ovn is not running on the node.
 	if config.OvnKubeNode.Mode != types.NodeModeSmartNICHost && config.Kubernetes.OVNMetricsBindAddress != "" {
-		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, node)
+		metrics.RegisterOvnMetrics(ovnClientset.KubeClient, master)
 		metrics.StartOVNMetricsServer(config.Kubernetes.OVNMetricsBindAddress)
 	}
 

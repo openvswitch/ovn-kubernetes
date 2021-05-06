@@ -204,8 +204,15 @@ func StartOVNMetricsServer(bindAddress string) {
 	}, 5*time.Second, utilwait.NeverStop)
 }
 
-func RegisterOvnMetrics(clientset kubernetes.Interface, k8sNodeName string) {
-	go RegisterOvnDBMetrics(clientset, k8sNodeName)
-	go RegisterOvnControllerMetrics()
-	go RegisterOvnNorthdMetrics(clientset, k8sNodeName)
+// RegisterOvnMetrics registers OVSDB and Northd metrics if k8sMasterName != "",
+// otherwise registers ovn-controller metrics
+func RegisterOvnMetrics(clientset kubernetes.Interface, k8sMasterName string) {
+	if k8sMasterName != "" {
+		klog.V(5).Infof("Registering OVN master metrics")
+		go RegisterOvnDBMetrics(clientset, k8sMasterName)
+		go RegisterOvnNorthdMetrics(clientset, k8sMasterName)
+	} else {
+		klog.V(5).Infof("Registering OVN node metrics")
+		go RegisterOvnControllerMetrics()
+	}
 }
