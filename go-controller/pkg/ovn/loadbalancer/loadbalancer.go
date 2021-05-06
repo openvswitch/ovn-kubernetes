@@ -266,13 +266,13 @@ func GetWorkerLoadBalancers(node string) (string, string, string, error) {
 }
 
 // CreateLoadBalancerVIPs either creates or updates a set of load balancer VIPs mapping
-// from sourcePort on each IP of a given address family in sourceIPs, to targetPort on
-// each IP of the same address family in targetIPs
+// from SourcePort on each IP of a given address family in sourceIPs, to TargetPort on
+// each IP of the same address family in TargetIPs
 func CreateLoadBalancerVIPs(lb string,
 	sourceIPs []string, sourcePort int32,
 	targetIPs []string, targetPort int32) error {
 	klog.V(5).Infof("Creating lb with %s, [%v], %d, [%v], %d", lb, sourceIPs, sourcePort, targetIPs, targetPort)
-
+	txn := util.NewNBTxn()
 	for _, sourceIP := range sourceIPs {
 		isIPv6 := utilnet.IsIPv6String(sourceIP)
 
@@ -283,10 +283,48 @@ func CreateLoadBalancerVIPs(lb string,
 			}
 		}
 		vip := util.JoinHostPortInt32(sourceIP, sourcePort)
-		err := UpdateLoadBalancer(lb, vip, targets)
-		if err != nil {
-			return err
+		lbTarget := fmt.Sprintf(`vips:"%s"="%s"`, vip, strings.Join(targets, ","))
+		txn.Add("set", "load_balancer", lb, lbTarget)
+	}
+	_, stderr, err := txn.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to create load balancer: stderr: %s, err: %v", stderr, err)
+	}
+	return nil
+}
+
+type Entry struct {
+	LoadBalancer string
+	SourceIPS    []string
+	SourcePort   int32
+	TargetIPs    []string
+	TargetPort   int32
+}
+
+// BundleCreateLoadBalancerVIPs is the same as CreateLoadBalancerVIPs but batches multiple load balancer config
+// together into a single transaction
+// creates or updates a set of load balancer VIPs mapping
+// from SourcePort on each IP of a given address family in sourceIPs, to TargetPort on
+// each IP of the same address family in TargetIPs
+func BundleCreateLoadBalancerVIPs(lbEntries []Entry) error {
+	txn := util.NewNBTxn()
+	for _, entry := range lbEntries {
+		for _, sourceIP := range entry.SourceIPS {
+			isIPv6 := utilnet.IsIPv6String(sourceIP)
+			var targets []string
+			for _, targetIP := range entry.TargetIPs {
+				if utilnet.IsIPv6String(targetIP) == isIPv6 {
+					targets = append(targets, util.JoinHostPortInt32(targetIP, entry.TargetPort))
+				}
+			}
+			vip := util.JoinHostPortInt32(sourceIP, entry.SourcePort)
+			lbTarget := fmt.Sprintf(`vips:"%s"="%s"`, vip, strings.Join(targets, ","))
+			txn.Add("set", "load_balancer", entry.LoadBalancer, lbTarget)
 		}
+	}
+	_, stderr, err := txn.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to create load balancer bundle: stderr: %s, err: %v", stderr, err)
 	}
 	return nil
 }

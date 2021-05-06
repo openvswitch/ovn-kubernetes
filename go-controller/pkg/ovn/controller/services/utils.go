@@ -152,6 +152,8 @@ func createPerNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32, 
 		return err
 	}
 
+	lbConfig := make([]loadbalancer.Entry, 0, len(gatewayRouters))
+
 	for _, gatewayRouter := range gatewayRouters {
 		gatewayLB, err := gateway.GetGatewayLoadBalancer(gatewayRouter, protocol)
 		if err != nil {
@@ -173,12 +175,13 @@ func createPerNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32, 
 		} else {
 			newTargets = targetIPs
 		}
-
-		err = loadbalancer.CreateLoadBalancerVIPs(gatewayLB, svcIPs, sourcePort, newTargets, targetPort)
-		if err != nil {
-			klog.Errorf("Failed to create VIP in load balancer %s - %v", gatewayLB, err)
-			return err
-		}
+		lbConfig = append(lbConfig, loadbalancer.Entry{
+			LoadBalancer: gatewayLB,
+			SourceIPS:    svcIPs,
+			SourcePort:   sourcePort,
+			TargetIPs:    newTargets,
+			TargetPort:   targetPort,
+		})
 
 		if config.Gateway.Mode == config.GatewayModeShared {
 			workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
@@ -187,14 +190,16 @@ func createPerNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32, 
 				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
 				return err
 			}
-			err = loadbalancer.CreateLoadBalancerVIPs(workerLB, svcIPs, sourcePort, targetIPs, targetPort)
-			if err != nil {
-				klog.Errorf("Failed to create VIP in load balancer %s - %v", workerLB, err)
-				return err
-			}
+			lbConfig = append(lbConfig, loadbalancer.Entry{
+				LoadBalancer: workerLB,
+				SourceIPS:    svcIPs,
+				SourcePort:   sourcePort,
+				TargetIPs:    targetIPs,
+				TargetPort:   targetPort,
+			})
 		}
 	}
-	return nil
+	return loadbalancer.BundleCreateLoadBalancerVIPs(lbConfig)
 }
 
 // createPerNodePhysicalVIPs adds load balancers on a per node basis for GR and worker switch LBs using physical IPs
@@ -205,6 +210,8 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 	if err != nil {
 		return err
 	}
+
+	lbConfig := make([]loadbalancer.Entry, 0, len(gatewayRouters))
 
 	for _, gatewayRouter := range gatewayRouters {
 		gatewayLB, err := gateway.GetGatewayLoadBalancer(gatewayRouter, protocol)
@@ -234,11 +241,13 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 			newTargets = targetIPs
 		}
 
-		err = loadbalancer.CreateLoadBalancerVIPs(gatewayLB, physicalIPs, sourcePort, newTargets, targetPort)
-		if err != nil {
-			klog.Errorf("Failed to create VIP in load balancer %s - %v", gatewayLB, err)
-			return err
-		}
+		lbConfig = append(lbConfig, loadbalancer.Entry{
+			LoadBalancer: gatewayLB,
+			SourceIPS:    physicalIPs,
+			SourcePort:   sourcePort,
+			TargetIPs:    newTargets,
+			TargetPort:   targetPort,
+		})
 
 		if config.Gateway.Mode == config.GatewayModeShared {
 			workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
@@ -247,14 +256,16 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
 				return err
 			}
-			err = loadbalancer.CreateLoadBalancerVIPs(workerLB, physicalIPs, sourcePort, targetIPs, targetPort)
-			if err != nil {
-				klog.Errorf("Failed to create VIP in load balancer %s - %v", workerLB, err)
-				return err
-			}
+			lbConfig = append(lbConfig, loadbalancer.Entry{
+				LoadBalancer: workerLB,
+				SourceIPS:    physicalIPs,
+				SourcePort:   sourcePort,
+				TargetIPs:    targetIPs,
+				TargetPort:   targetPort,
+			})
 		}
 	}
-	return nil
+	return loadbalancer.BundleCreateLoadBalancerVIPs(lbConfig)
 }
 
 // deleteNodeVIPs removes load balancers on a per node basis for GR and worker switch LBs

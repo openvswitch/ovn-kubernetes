@@ -661,19 +661,9 @@ func TestUpdateServiceEndpointsToHost(t *testing.T) {
 		Cmd:    `ovn-nbctl --timeout=15 get logical_router GR_1 external_ids:physical_ips`,
 		Output: "2.2.2.2",
 	})
-	// endpoint is self node IP, so need to use special masquerade endpoint
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 set load_balancer load_balancer_1 vips:"192.168.1.1:80"="169.254.169.2:3456"`,
-		Output: "",
-	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-tcp=1`,
 		Output: "load_balancer_worker_1",
-	})
-	// use regular backend on the worker switch LB
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 set load_balancer load_balancer_worker_1 vips:"192.168.1.1:80"="2.2.2.2:3456"`,
-		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
@@ -683,18 +673,19 @@ func TestUpdateServiceEndpointsToHost(t *testing.T) {
 		Cmd:    `ovn-nbctl --timeout=15 get logical_router GR_2 external_ids:physical_ips`,
 		Output: "2.2.2.3",
 	})
-	// adding to second node will not use special masquerade
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 set load_balancer load_balancer_2 vips:"192.168.1.1:80"="2.2.2.2:3456"`,
-		Output: "",
-	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-tcp=2`,
 		Output: "load_balancer_worker_2",
 	})
+	// endpoint is self node IP, so need to use special masquerade endpoint
+	// use regular backend on the worker switch LB
+	// adding to second node will not use special masquerade
 	// and regular endpoint IP on the 2nd worker switch
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 set load_balancer load_balancer_worker_2 vips:"192.168.1.1:80"="2.2.2.2:3456"`,
+		Cmd: `ovn-nbctl --timeout=15 set load_balancer load_balancer_1 vips:"192.168.1.1:80"="169.254.169.2:3456"` +
+			` -- set load_balancer load_balancer_worker_1 vips:"192.168.1.1:80"="2.2.2.2:3456"` +
+			` -- set load_balancer load_balancer_2 vips:"192.168.1.1:80"="2.2.2.2:3456"` +
+			` -- set load_balancer load_balancer_worker_2 vips:"192.168.1.1:80"="2.2.2.2:3456"`,
 		Output: "",
 	})
 	// Ensure the VIP entry is removed on the cluster wide TCP load balancer
