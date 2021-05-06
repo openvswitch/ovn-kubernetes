@@ -71,7 +71,7 @@ func NewCNIServer(rundir string, useOVSExternalIDs bool, factory factory.NodeWat
 		},
 		rundir:             rundir,
 		useOVSExternalIDs:  ovnPortBinding,
-		podLister:          corev1listers.NewPodLister(factory.LocalPodInformer().GetIndexer()),
+		podLister:          corev1listers.NewPodLister(factory.LocalPodInformer().Informer().GetIndexer()),
 		kclient:            kclient,
 		runningSandboxAdds: make(map[string]*PodRequest),
 		mode:               config.OvnKubeNode.Mode,

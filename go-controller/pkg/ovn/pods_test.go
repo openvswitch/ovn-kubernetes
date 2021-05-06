@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/urfave/cli/v2"
@@ -221,7 +222,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 					},
 				)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				pod, err := fakeOvn.fakeClient.KubeClient.CoreV1().Pods(t.namespace).Get(context.TODO(), t.podName, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -276,7 +277,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				pod, _ := fakeOvn.fakeClient.KubeClient.CoreV1().Pods(t.namespace).Get(context.TODO(), t.podName, metav1.GetOptions{})
 				gomega.Expect(pod).To(gomega.BeNil())
@@ -330,7 +331,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 				gomega.Eventually(fExec.CalledMatchesExpected).Should(gomega.BeTrue(), fExec.ErrorDesc)
@@ -389,7 +390,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 					fmt.Errorf("injected dummy port external_ids set error"),
 					fakeOvn.ovnNBClient)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 				gomega.Expect(fExec.CalledMatchesExpected()).To(gomega.BeTrue(), fExec.ErrorDesc)
 				// allow pod retry from update annotation to fail
 				time.Sleep(2 * time.Second)
@@ -441,7 +442,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				fakeOvn.start(ctx)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 				gomega.Expect(fExec.CalledMatchesExpected()).To(gomega.BeTrue(), fExec.ErrorDesc)
 
 				// Add pod before namespace; pod will be annotated
@@ -518,7 +519,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				gomega.Expect(ok).To(gomega.BeFalse())
 
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 
@@ -554,7 +555,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 
 				fakeOvn.start(ctx)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 				gomega.Expect(fExec.CalledMatchesExpected()).To(gomega.BeTrue(), fExec.ErrorDesc)
 				return nil
 			}
@@ -597,7 +598,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 
@@ -645,7 +646,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Expect(fExec.CalledMatchesExpected()).To(gomega.BeTrue(), fExec.ErrorDesc)
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
@@ -659,7 +660,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				fakeOvn.restart()
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 				gomega.Eventually(fExec.CalledMatchesExpected).Should(gomega.BeTrue(), fExec.ErrorDesc)
@@ -705,7 +706,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				)
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 				gomega.Expect(fExec.CalledMatchesExpected()).To(gomega.BeTrue(), fExec.ErrorDesc)
@@ -720,7 +721,7 @@ var _ = ginkgo.Describe("OVN Pod Operations", func() {
 				fakeOvn.restart()
 				t.populateLogicalSwitchCache(fakeOvn)
 				fakeOvn.controller.WatchNamespaces()
-				fakeOvn.controller.WatchPods()
+				fakeOvn.controller.WatchPods(&sync.WaitGroup{})
 
 				gomega.Eventually(func() string { return getPodAnnotations(fakeOvn.fakeClient.KubeClient, t.namespace, t.podName) }, 2).Should(gomega.MatchJSON(`{"default": {"ip_addresses":["` + t.podIP + `/24"], "mac_address":"` + t.podMAC + `", "gateway_ips": ["` + t.nodeGWIP + `"], "ip_address":"` + t.podIP + `/24", "gateway_ip": "` + t.nodeGWIP + `"}}`))
 				gomega.Eventually(fExec.CalledMatchesExpected).Should(gomega.BeTrue(), fExec.ErrorDesc)
