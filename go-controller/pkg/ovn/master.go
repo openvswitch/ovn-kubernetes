@@ -932,6 +932,15 @@ func (oc *Controller) allocateNodeSubnets(node *kapi.Node) ([]*net.IPNet, []*net
 	// assume IP families match, i.e. no IPv6 config and node annotation IPv4
 	if expectedHostSubnets == currentHostSubnets {
 		klog.Infof("Allocated Subnets %v on Node %s", hostSubnets, node.Name)
+		// Ensure that the parsed host subnets are reserved in the allocator
+		for _, subnet := range hostSubnets {
+			err = oc.masterSubnetAllocator.MarkAllocatedNetwork(subnet)
+			if err != nil {
+				klog.Warningf("Failed to mark subnet %v as allocated for node %s, error: %v", subnet, node.Name, err)
+				return nil, nil, err
+			}
+		}
+		allocatedSubnets = append(allocatedSubnets, hostSubnets...)
 		return hostSubnets, allocatedSubnets, nil
 	}
 
@@ -1006,6 +1015,17 @@ func (oc *Controller) allocateNodeSubnets(node *kapi.Node) ([]*net.IPNet, []*net
 		if allocatedHostSubnet != nil {
 			klog.V(5).Infof("Allocating subnet %v on node %s", allocatedHostSubnet, node.Name)
 			allocatedSubnets = append(allocatedSubnets, allocatedHostSubnet)
+			// Release the allocation on error
+			defer func() {
+				if err != nil {
+					klog.Warningf("Releasing subnet %v on node %s: %v", allocatedHostSubnet, node.Name, err)
+					errR := oc.masterSubnetAllocator.ReleaseNetwork(allocatedHostSubnet)
+					if errR != nil {
+						klog.Warningf("Error releasing subnet %v on node %s", allocatedHostSubnet, node.Name)
+					}
+				}
+			}()
+
 		}
 	}
 	// check if we were able to allocate the new subnets require
@@ -1013,7 +1033,9 @@ func (oc *Controller) allocateNodeSubnets(node *kapi.Node) ([]*net.IPNet, []*net
 	// so it will require a reconfiguration and restart.
 	wantedSubnets := expectedHostSubnets - currentHostSubnets
 	if wantedSubnets > 0 && len(allocatedSubnets) != wantedSubnets {
-		return nil, nil, fmt.Errorf("error allocating networks for node %s: %d subnets expected only new %d subnets allocated", node.Name, expectedHostSubnets, len(allocatedSubnets))
+		err = fmt.Errorf("error allocating networks for node %s: %d subnets expected only new %d subnets allocated",
+			node.Name, expectedHostSubnets, len(allocatedSubnets))
+		return nil, nil, err
 	}
 	hostSubnets = append(hostSubnets, allocatedSubnets...)
 	klog.Infof("Allocated Subnets %v on Node %s", hostSubnets, node.Name)
