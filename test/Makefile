@@ -12,6 +12,10 @@ install-kind:
 	KIND_IPV6_SUPPORT=$(KIND_IPV6_SUPPORT) \
 	./scripts/install-kind.sh
 
+.PHONY: install-cno-kind
+install-cno-kind:
+	./scripts/install-cno-kind.sh
+
 .PHONY: shard-%
 shard-%:
 	E2E_REPORT_DIR=$(E2E_REPORT_DIR) \
