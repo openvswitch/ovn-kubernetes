@@ -298,15 +298,25 @@ func getPodInfo(coreclient *corev1client.CoreV1Client, restconfig *rest.Config, 
 			}
 			klog.V(5).Infof("linkIndex is %d", linkIndex)
 		} else {
+			var linkOutput string
 			awkString := " | awk '{print $2}'"
 			iplinkCmd := "ip -o link show dev " + ethName + awkString
 
 			klog.V(5).Infof("The ip -o command is %s", iplinkCmd)
 			linkOutput, linkError, err := execInPod(coreclient, restconfig, namespace, podName, podInfo.ContainerName, iplinkCmd, "")
-			if err != nil {
+			if err != nil || linkError != "" {
 				klog.V(1).Infof("The ip -o command error %v stdOut: %s\n stdErr: %s", err, linkOutput, linkError)
-				// Give up, pod image doesn't have iproute installed
-				return nil, err
+				// Pod image doesn't have iproute installed, try using sysfs
+				ifindexCatCmd := "cat /sys/class/net/" + ethName + "/ifindex"
+				klog.V(5).Infof("The cat command is %s", ifindexCatCmd)
+				catError := ""
+				linkOutput, catError, err = execInPod(coreclient, restconfig, namespace, podName, podInfo.ContainerName, ifindexCatCmd, "")
+				klog.V(1).Info(linkOutput)
+				if err != nil || catError != "" || linkOutput == "" {
+					// Okay, we're really done, time to give up
+					klog.V(1).Infof("The cat /sys/class/net... command error %v stdOut: %s\n stdErr: %s", err, linkOutput, catError)
+					return nil, err
+				}
 			}
 
 			klog.V(5).Infof("AWK string is %s", awkString)
