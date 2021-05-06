@@ -53,12 +53,13 @@ const (
 	egressFirewallDNSDefaultDuration time.Duration = 30 * time.Minute
 )
 
-// loadBalancerConf contains the OVN based config for a LB
-type loadBalancerConf struct {
-	// List of endpoints as configured in OVN, ip:port
-	endpoints []string
-	// ACL configured for Rejecting access to the LB
-	rejectACL string
+// ServiceVIPKey is used for looking up service namespace information for a
+// particular load balancer
+type ServiceVIPKey struct {
+	// Load balancer VIP in the form "ip:port"
+	vip string
+	// Protocol used by the load balancer
+	protocol kapi.Protocol
 }
 
 // ACL logging severity levels
@@ -183,10 +184,10 @@ type Controller struct {
 	// Is ACL logging enabled while configuring meters?
 	aclLoggingEnabled bool
 
-	// Map of load balancers, each containing a map of VIP to OVN LB Config
-	serviceLBMap map[string]map[string]*loadBalancerConf
+	// Map of load balancers to service namespace
+	serviceVIPToName map[ServiceVIPKey]types.NamespacedName
 
-	serviceLBLock sync.Mutex
+	serviceVIPToNameLock sync.Mutex
 
 	joinSwIPManager *joinSwitchIPManager
 
@@ -280,8 +281,8 @@ func NewOvnController(ovnClient *util.OVNClientset, wf *factory.WatchFactory,
 		loadbalancerClusterCache: make(map[kapi.Protocol]string),
 		multicastSupport:         config.EnableMulticast,
 		aclLoggingEnabled:        true,
-		serviceLBMap:             make(map[string]map[string]*loadBalancerConf),
-		serviceLBLock:            sync.Mutex{},
+		serviceVIPToName:         make(map[ServiceVIPKey]types.NamespacedName),
+		serviceVIPToNameLock:     sync.Mutex{},
 		joinSwIPManager:          nil,
 		retryPods:                make(map[types.UID]retryEntry),
 		recorder:                 recorder,
@@ -308,53 +309,44 @@ func (oc *Controller) Run(wg *sync.WaitGroup, nodeName string) error {
 
 	oc.WatchPods()
 
-	// We use a level triggered controller to handle services if the cluster
-	// has endpoint slices enabled.
-	if util.UseEndpointSlices(oc.client) {
-		klog.Infof("Starting OVN Service Controller: Using Endpoint Slices")
-		// Create our own informers to start compartamentalizing the code
-		// filter server side the things we don't care about
-		noProxyName, err := labels.NewRequirement("service.kubernetes.io/service-proxy-name", selection.DoesNotExist, nil)
-		if err != nil {
-			return err
-		}
-
-		noHeadlessEndpoints, err := labels.NewRequirement(kapi.IsHeadlessService, selection.DoesNotExist, nil)
-		if err != nil {
-			return err
-		}
-
-		labelSelector := labels.NewSelector()
-		labelSelector = labelSelector.Add(*noProxyName, *noHeadlessEndpoints)
-
-		informerFactory := informers.NewSharedInformerFactoryWithOptions(oc.client, 0,
-			informers.WithTweakListOptions(func(options *metav1.ListOptions) {
-				options.LabelSelector = labelSelector.String()
-			}))
-
-		servicesController := svccontroller.NewController(
-			oc.client,
-			informerFactory.Core().V1().Services(),
-			informerFactory.Discovery().V1beta1().EndpointSlices(),
-			oc.clusterPortGroupUUID,
-		)
-		informerFactory.Start(oc.stopChan)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// use 5 workers like most of the kubernetes controllers in the
-			// kubernetes controller-manager
-			err := servicesController.Run(5, oc.stopChan)
-			if err != nil {
-				klog.Errorf("Error running OVN Kubernetes Services controller: %v", err)
-			}
-		}()
-
-	} else {
-		klog.Infof("OVN Controller using Endpoints instead of EndpointSlices")
-		oc.WatchServices()
-		oc.WatchEndpoints()
+	klog.Infof("Starting OVN Service Controller: Using Endpoint Slices")
+	// Create our own informers to start compartamentalizing the code
+	// filter server side the things we don't care about
+	noProxyName, err := labels.NewRequirement("service.kubernetes.io/service-proxy-name", selection.DoesNotExist, nil)
+	if err != nil {
+		return err
 	}
+
+	noHeadlessEndpoints, err := labels.NewRequirement(kapi.IsHeadlessService, selection.DoesNotExist, nil)
+	if err != nil {
+		return err
+	}
+
+	labelSelector := labels.NewSelector()
+	labelSelector = labelSelector.Add(*noProxyName, *noHeadlessEndpoints)
+
+	informerFactory := informers.NewSharedInformerFactoryWithOptions(oc.client, 0,
+		informers.WithTweakListOptions(func(options *metav1.ListOptions) {
+			options.LabelSelector = labelSelector.String()
+		}))
+
+	servicesController := svccontroller.NewController(
+		oc.client,
+		informerFactory.Core().V1().Services(),
+		informerFactory.Discovery().V1beta1().EndpointSlices(),
+		oc.clusterPortGroupUUID,
+	)
+	informerFactory.Start(oc.stopChan)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// use 5 workers like most of the kubernetes controllers in the
+		// kubernetes controller-manager
+		err := servicesController.Run(5, oc.stopChan)
+		if err != nil {
+			klog.Errorf("Error running OVN Kubernetes Services controller: %v", err)
+		}
+	}()
 
 	oc.WatchNetworkPolicy()
 
@@ -567,74 +559,6 @@ func (oc *Controller) WatchPods() {
 		},
 	}, oc.syncPods)
 	klog.Infof("Bootstrapping existing pods and cleaning stale pods took %v", time.Since(start))
-}
-
-// WatchServices starts the watching of Service resource and calls back the
-// appropriate handler logic
-func (oc *Controller) WatchServices() {
-	start := time.Now()
-	oc.watchFactory.AddServiceHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			service := obj.(*kapi.Service)
-			err := oc.createService(service)
-			if err != nil {
-				klog.Errorf("Error in adding service: %v", err)
-			}
-		},
-		UpdateFunc: func(old, new interface{}) {
-			svcOld := old.(*kapi.Service)
-			svcNew := new.(*kapi.Service)
-			err := oc.updateService(svcOld, svcNew)
-			if err != nil {
-				klog.Errorf("Error while updating service: %v", err)
-			}
-		},
-		DeleteFunc: func(obj interface{}) {
-			service := obj.(*kapi.Service)
-			oc.deleteService(service)
-		},
-	}, oc.syncServices)
-	klog.Infof("Bootstrapping existing services and cleaning stale services took %v", time.Since(start))
-}
-
-// WatchEndpoints starts the watching of Endpoint resource and calls back the appropriate handler logic
-func (oc *Controller) WatchEndpoints() {
-	start := time.Now()
-	oc.watchFactory.AddEndpointsHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
-			ep := obj.(*kapi.Endpoints)
-			err := oc.AddEndpoints(ep, true)
-			if err != nil {
-				klog.Errorf("Error in adding load balancer: %v", err)
-			}
-		},
-		UpdateFunc: func(old, new interface{}) {
-			epNew := new.(*kapi.Endpoints)
-			epOld := old.(*kapi.Endpoints)
-			if reflect.DeepEqual(epNew.Subsets, epOld.Subsets) {
-				return
-			}
-			if len(epNew.Subsets) == 0 {
-				err := oc.deleteEndpoints(epNew)
-				if err != nil {
-					klog.Errorf("Error in deleting endpoints - %v", err)
-				}
-			} else {
-				err := oc.AddEndpoints(epNew, true)
-				if err != nil {
-					klog.Errorf("Error in modifying endpoints: %v", err)
-				}
-			}
-		},
-		DeleteFunc: func(obj interface{}) {
-			ep := obj.(*kapi.Endpoints)
-			err := oc.deleteEndpoints(ep)
-			if err != nil {
-				klog.Errorf("Error in deleting endpoints - %v", err)
-			}
-		},
-	}, nil)
-	klog.Infof("Bootstrapping existing endpoints and cleaning stale endpoints took %v", time.Since(start))
 }
 
 // WatchNetworkPolicy starts the watching of network policy resource and calls
@@ -1052,47 +976,6 @@ func (oc *Controller) aclLoggingCanEnable(annotation string, nsInfo *namespaceIn
 		}
 	}
 	return okCnt > 0
-}
-
-// setServiceEndpointsToLB associates a load balancer with endpoints
-func (oc *Controller) setServiceEndpointsToLB(lb, vip string, eps []string) {
-	if _, ok := oc.serviceLBMap[lb]; !ok {
-		oc.serviceLBMap[lb] = make(map[string]*loadBalancerConf)
-		oc.serviceLBMap[lb][vip] = &loadBalancerConf{endpoints: eps}
-		return
-	}
-	if _, ok := oc.serviceLBMap[lb][vip]; !ok {
-		oc.serviceLBMap[lb][vip] = &loadBalancerConf{endpoints: eps}
-		return
-	}
-	oc.serviceLBMap[lb][vip].endpoints = eps
-}
-
-// getServiceLBInfo returns the reject ACL and whether the number of endpoints for the service is greater than zero
-func (oc *Controller) getServiceLBInfo(lb, vip string) (string, bool) {
-	oc.serviceLBLock.Lock()
-	defer oc.serviceLBLock.Unlock()
-	conf, ok := oc.serviceLBMap[lb][vip]
-	if !ok {
-		conf = &loadBalancerConf{}
-	}
-	return conf.rejectACL, len(conf.endpoints) > 0
-}
-
-// removeServiceLB removes the entire LB entry for a VIP
-func (oc *Controller) removeServiceLB(lb, vip string) {
-	oc.serviceLBLock.Lock()
-	defer oc.serviceLBLock.Unlock()
-	delete(oc.serviceLBMap[lb], vip)
-}
-
-// removeServiceEndpoints removes endpoints associated with a load balancer and ip:port
-func (oc *Controller) removeServiceEndpoints(lb, vip string) {
-	oc.serviceLBLock.Lock()
-	defer oc.serviceLBLock.Unlock()
-	if _, ok := oc.serviceLBMap[lb][vip]; ok {
-		oc.serviceLBMap[lb][vip].endpoints = []string{}
-	}
 }
 
 // gatewayChanged() compares old annotations to new and returns true if something has changed.

@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -54,7 +55,7 @@ func gatewayCleanup(nodeName string) error {
 	}
 
 	// If exists, remove the TCP, UDP load-balancers created for north-south traffic for gateway router.
-	k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP, err := getGatewayLoadBalancers(gatewayRouter)
+	k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP, err := gateway.GetGatewayLoadBalancers(gatewayRouter)
 	if err != nil {
 		return err
 	}
@@ -218,7 +219,7 @@ func multiJoinSwitchGatewayCleanup(nodeName string, upgradeOnly bool) error {
 	}
 
 	// If exists, remove the TCP, UDP load-balancers created for north-south traffic for gateway router.
-	k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP, err := getGatewayLoadBalancers(gatewayRouter)
+	k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP, err := gateway.GetGatewayLoadBalancers(gatewayRouter)
 	if err != nil {
 		return err
 	}

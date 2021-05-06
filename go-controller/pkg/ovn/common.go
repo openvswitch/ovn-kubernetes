@@ -46,12 +46,3 @@ func deletePortGroup(ovnNBClient goovn.Client, hashName string) error {
 	}
 	return nil
 }
-
-func stringSliceMembership(slice []string, key string) bool {
-	for _, val := range slice {
-		if val == key {
-			return true
-		}
-	}
-	return false
-}

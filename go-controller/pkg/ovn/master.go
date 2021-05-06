@@ -28,6 +28,7 @@ import (
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/informer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/metrics"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/ipallocator"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/loadbalancer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
@@ -686,13 +687,11 @@ func (oc *Controller) syncGatewayLogicalNetwork(node *kapi.Node, l3GatewayConfig
 		}
 	}
 
-	if l3GatewayConfig.NodePortEnable {
-		err = oc.handleNodePortLB(node)
-	} else {
+	if !l3GatewayConfig.NodePortEnable {
 		// nodePort disabled, delete gateway load balancers for this node.
 		gatewayRouter := util.GetGatewayRouterFromNode(node.Name)
 		for _, proto := range []kapi.Protocol{kapi.ProtocolTCP, kapi.ProtocolUDP, kapi.ProtocolSCTP} {
-			lbUUID, _ := oc.getGatewayLoadBalancer(gatewayRouter, proto)
+			lbUUID, _ := gateway.GetGatewayLoadBalancer(gatewayRouter, proto)
 			if lbUUID != "" {
 				_, _, err := util.RunOVNNbctl("--if-exists", "destroy", "load_balancer", lbUUID)
 				if err != nil {
@@ -1420,4 +1419,36 @@ func (oc *Controller) deleteNodeChassis(nodeName string) error {
 			"for node %s: error: %v", strings.Join(chNames, ","), nodeName, err)
 	}
 	return nil
+}
+
+// getJoinLRPAddresses check if IPs of gateway logical router port are within the join switch IP range, and return them if true.
+func (oc *Controller) getJoinLRPAddresses(nodeName string) []*net.IPNet {
+	// try to get the IPs from the logical router port
+	gwLRPIPs := []*net.IPNet{}
+	gwLrpName := types.GWRouterToJoinSwitchPrefix + types.GWRouterPrefix + nodeName
+	joinSubnets := oc.joinSwIPManager.lsm.GetSwitchSubnets(nodeName)
+	ifAddrs, err := util.GetLRPAddrs(gwLrpName)
+	if err == nil {
+		for _, ifAddr := range ifAddrs {
+			for _, subnet := range joinSubnets {
+				if subnet.Contains(ifAddr.IP) {
+					gwLRPIPs = append(gwLRPIPs, &net.IPNet{IP: ifAddr.IP, Mask: subnet.Mask})
+					break
+				}
+			}
+		}
+	}
+
+	if len(gwLRPIPs) != len(joinSubnets) {
+		var errStr string
+		if len(gwLRPIPs) == 0 {
+			errStr = fmt.Sprintf("Failed to get IPs for logical router port %s", gwLrpName)
+		} else {
+			errStr = fmt.Sprintf("Invalid IPs %s (possibly not in the range of subnet %s)",
+				util.JoinIPNetIPs(gwLRPIPs, " "), util.JoinIPNetIPs(joinSubnets, " "))
+		}
+		klog.Warningf("%s for logical router port %s", errStr, gwLrpName)
+		return []*net.IPNet{}
+	}
+	return gwLRPIPs
 }

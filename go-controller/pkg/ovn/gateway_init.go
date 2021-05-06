@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/loadbalancer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
@@ -154,6 +155,20 @@ func gatewayInit(nodeName string, clusterIPSubnet []*net.IPNet, hostSubnets []*n
 	if l3GatewayConfig.NodePortEnable {
 		// Create 3 load-balancers for north-south traffic for each gateway
 		// router: UDP, TCP, SCTP
+		var k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP string
+		k8sNSLbTCP, k8sNSLbUDP, k8sNSLbSCTP, err = gateway.GetGatewayLoadBalancers(gatewayRouter)
+		if err != nil {
+			return err
+		}
+		protoLBMap := map[kapi.Protocol]string{
+			kapi.ProtocolTCP:  k8sNSLbTCP,
+			kapi.ProtocolUDP:  k8sNSLbUDP,
+			kapi.ProtocolSCTP: k8sNSLbSCTP,
+		}
+		enabledProtos := []kapi.Protocol{kapi.ProtocolTCP, kapi.ProtocolUDP}
+		if sctpSupport {
+			enabledProtos = append(enabledProtos, kapi.ProtocolSCTP)
+		}
 		for _, proto := range enabledProtos {
 			if gatewayProtoLBMap[proto] == "" {
 				gatewayProtoLBMap[proto], stderr, err = util.RunOVNNbctl("--", "create",
