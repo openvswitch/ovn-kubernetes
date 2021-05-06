@@ -56,8 +56,6 @@ Services.+(ESIPP|cleanup finalizer)
 configMap nameserver
 ClusterDns \[Feature:Example\]
 should set default value on new IngressClass
-# RACE CONDITION IN TEST, SEE https://github.com/kubernetes/kubernetes/pull/90254
-should prevent Ingress creation if more than 1 IngressClass marked as default
 "
 
 IPV4_ONLY_TESTS="
