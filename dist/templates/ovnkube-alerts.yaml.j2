@@ -365,5 +365,15 @@ spec:
          {{ range query "ovn_controller_integration_bridge_geneve_ports_total{job='ovnkube-node', namespace='ovn-kubernetes'} !=  scalar(count(kube_node_info)) - 1" }}
          {{ .Labels.instance }}: {{ .Value }}
          {{ end }}.
- 
+
+    - alert: OvsPacketInDrops
+      expr: |
+        rate(ovs_vswitchd_packet_in_drop{namespace="ovn-kubernetes",job="ovnkube-node"}[1m]) > 0
+      for: 10m
+      labels:
+       severity: critical
+      annotations:
+       description: |
+         Pod ovn-kubernetes/ {{ $labels.pod }} ovn-controller containers
+         packet-in-drops is {{ printf "%.2f" $value }} per second.
 
