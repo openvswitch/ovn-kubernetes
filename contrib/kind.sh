@@ -55,6 +55,7 @@ usage() {
     echo "-el  | --ovn-empty-lb-events       Enable empty-lb-events generation for LB without backends. DEFAULT: Disabled"
     echo "-ii  | --install-ingress           Flag to install Ingress Components."
     echo "                                   DEFAULT: Don't install ingress components."
+    echo "-ip  | --install-prometheus        Flag to install Prometheus to monitor and gather components metrics."
     echo "-n4  | --no-ipv4                   Disable IPv4. DEFAULT: IPv4 Enabled."
     echo "-i6  | --ipv6                      Enable IPv6. DEFAULT: IPv6 Disabled."
     echo "-wk  | --num-workers               Number of worker nodes. DEFAULT: HA - 2 worker"
@@ -89,6 +90,8 @@ parse_args() {
                                                 KIND_CONFIG=$1
                                                 ;;
             -ii | --install-ingress )           KIND_INSTALL_INGRESS=true
+                                                ;;
+            -ip | --install-prometheus )        KIND_INSTALL_PROMETHEUS=true
                                                 ;;
             -ha | --ha-enabled )                OVN_HA=true
                                                 ;;
@@ -194,6 +197,7 @@ print_params() {
      echo "Using these parameters to install KIND"
      echo ""
      echo "KIND_INSTALL_INGRESS = $KIND_INSTALL_INGRESS"
+     echo "KIND_INSTALL_PROMETHEUS = $KIND_INSTALL_PROMETHEUS"
      echo "OVN_HA = $OVN_HA"
      echo "KIND_CONFIG_FILE = $KIND_CONFIG"
      echo "KIND_REMOVE_TAINT = $KIND_REMOVE_TAINT"
@@ -235,6 +239,7 @@ set_default_params() {
   K8S_VERSION=${K8S_VERSION:-v1.20.0}
   OVN_GATEWAY_MODE=${OVN_GATEWAY_MODE:-local}
   KIND_INSTALL_INGRESS=${KIND_INSTALL_INGRESS:-false}
+  KIND_INSTALL_PROMETHEUS=${KIND_INSTALL_PROMETHEUS:-false}
   OVN_HA=${OVN_HA:-false}
   KIND_CONFIG=${KIND_CONFIG:-./kind.yaml.j2}
   KIND_REMOVE_TAINT=${KIND_REMOVE_TAINT:-true}
@@ -525,6 +530,28 @@ install_ingress() {
   run_kubectl apply -f ingress/service-nodeport.yaml
 }
 
+
+# the prometheus server is exposed as a nodeport service so it can be
+# accessed from the host
+install_prometheus() {
+  # kube-proxy needs to enable the metrics endpointin all addresses
+  original_kube_proxy=$(kubectl get -oyaml -n=kube-system configmap/kube-proxy)
+  echo "Original kube-proxy config:"
+  echo "${original_kube_proxy}"
+  # Patch it
+  fixed_kube_proxy=$(
+      printf '%s' "${original_kube_proxy}" | sed \
+          's/\(.*metricsBindAddress:\)\( .*\)/\1 "0.0.0.0:10249"/' \
+      )
+  echo "Patched kube-proxy config:"
+  echo "${fixed_kube_proxy}"
+  printf '%s' "${fixed_kube_proxy}" | kubectl apply -f -
+  # restart kube-proxy
+  kubectl -n kube-system rollout restart ds kube-proxy
+  # Install prometheus
+  kubectl apply -f "prometheus/kind-monitoring.yaml"
+}
+
 kubectl_wait_pods() {
   # Check that everything is fine and running. IPv6 cluster seems to take a little
   # longer to come up, so extend the wait time.
@@ -584,6 +611,9 @@ install_ovn_image
 install_ovn
 if [ "$KIND_INSTALL_INGRESS" == true ]; then
   install_ingress
+fi
+if [ "$KIND_INSTALL_PROMETHEUS" == true ]; then
+  install_prometheus
 fi
 delete_kube_proxy
 kubectl_wait_pods
