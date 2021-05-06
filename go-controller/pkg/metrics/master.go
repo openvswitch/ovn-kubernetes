@@ -143,6 +143,18 @@ var metricV6AllocatedHostSubnetCount = prometheus.NewGauge(prometheus.GaugeOpts{
 	Help:      "The total number of v6 host subnets currently allocated",
 })
 
+var MetricPodCountInNetworkPolicy = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: MetricOvnkubeNamespace,
+	Subsystem: MetricOvnkubeSubsystemMaster,
+	Name:      "pod_count_in_policy",
+	Help: "A metric that captures the number of pods a network policy is applied to. This metric is labled with " +
+		"namespace and policy names."},
+	[]string{
+		"namespace",
+		"policy",
+	},
+)
+
 var registerMasterMetricsOnce sync.Once
 var startE2ETimeStampUpdaterOnce sync.Once
 
@@ -216,6 +228,7 @@ func RegisterMasterMetrics(nbClient, sbClient goovn.Client) {
 		prometheus.MustRegister(metricV4AllocatedHostSubnetCount)
 		prometheus.MustRegister(metricV6AllocatedHostSubnetCount)
 		registerWorkqueueMetrics(MetricOvnkubeNamespace, MetricOvnkubeSubsystemMaster)
+		prometheus.MustRegister(MetricPodCountInNetworkPolicy)
 	})
 }
 
