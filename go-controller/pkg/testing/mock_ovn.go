@@ -15,6 +15,7 @@ const (
 	LogicalSwitchType            string = "Logical_Switch"
 	LogicalRouterType            string = "Logical_Router"
 	LogicalSwitchPortType        string = "Logical_Switch_Port"
+	LogicalRouterPortType        string = "Logical_Router_Port"
 	LogicalRouterStaticRouteType string = "Logical_Router_Static_Route"
 	ChassisType                  string = "Chassis"
 	ACLType                      string = "ACL"
@@ -79,6 +80,7 @@ func NewMockOVNClient(db string) *MockOVNClient {
 		connected:  true,
 	}
 	mock.cache[LogicalSwitchPortType] = make(MockObjectCacheByName)
+	mock.cache[LogicalRouterPortType] = make(MockObjectCacheByName)
 	mock.cache[ChassisType] = make(MockObjectCacheByName)
 	mock.cache[LogicalSwitchType] = make(MockObjectCacheByName)
 	mock.cache[ChassisPrivateType] = make(MockObjectCacheByName)
