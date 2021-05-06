@@ -876,7 +876,7 @@ func (oc *Controller) syncNodeGateway(node *kapi.Node, hostSubnets []*net.IPNet)
 		hostSubnets, _ = util.ParseNodeHostSubnetAnnotation(node)
 	}
 	if l3GatewayConfig.Mode == config.GatewayModeDisabled {
-		if err := gatewayCleanup(node.Name); err != nil {
+		if err := gatewayCleanup(oc.ovnNBClient, node.Name); err != nil {
 			return fmt.Errorf("error cleaning up gateway for node %s: %v", node.Name, err)
 		}
 		if err := oc.joinSwIPManager.releaseJoinLRPIPs(node.Name); err != nil {

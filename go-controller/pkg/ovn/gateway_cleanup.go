@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 
+	goovn "github.com/ebay/go-ovn"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -13,7 +14,7 @@ import (
 )
 
 // gatewayCleanup removes all the NB DB objects created for a node's gateway
-func gatewayCleanup(nodeName string) error {
+func gatewayCleanup(ovnNBClient goovn.Client, nodeName string) error {
 	gatewayRouter := types.GWRouterPrefix + nodeName
 
 	// Get the gateway router port's IP address (connected to join switch)
@@ -27,7 +28,7 @@ func gatewayCleanup(nodeName string) error {
 	for _, gwIPAddr := range gwIPAddrs {
 		nextHops = append(nextHops, gwIPAddr.IP)
 	}
-	staticRouteCleanup(nextHops)
+	staticRouteCleanup(ovnNBClient, nextHops)
 
 	// Remove the patch port that connects join switch to gateway router
 	_, stderr, err := util.RunOVNNbctl("--if-exist", "lsp-del", types.JoinSwitchToGWRouterPrefix+gatewayRouter)
@@ -103,7 +104,7 @@ func delPbrAndNatRules(nodeName string, lrpTypes []string) {
 	removeLRPolicies(nodeName, lrpTypes)
 }
 
-func staticRouteCleanup(nextHops []net.IP) {
+func staticRouteCleanup(ovnNBClient goovn.Client, nextHops []net.IP) {
 	for _, nextHop := range nextHops {
 		// Get a list of all the routes in cluster router with the next hop IP.
 		var uuids string
@@ -120,11 +121,14 @@ func staticRouteCleanup(nextHops []net.IP) {
 		// Remove all the routes in cluster router with this IP as the nexthop.
 		routes := strings.Fields(uuids)
 		for _, route := range routes {
-			_, stderr, err = util.RunOVNNbctl("--if-exists", "remove",
-				"logical_router", types.OVNClusterRouter, "static_routes", route)
+			LRSRDelCmd, err := ovnNBClient.LRSRDelByUUID(types.OVNClusterRouter, route)
 			if err != nil {
-				klog.Errorf("Failed to delete static route %s"+
-					", stderr: %q, err = %v", route, stderr, err)
+				klog.Errorf("Failed to create delete static route cmd for %s err = %v", route, err)
+				continue
+			}
+			err = ovnNBClient.Execute(LRSRDelCmd)
+			if err != nil {
+				klog.Errorf("Failed to delete static route %s err = %v", route, err)
 			}
 		}
 	}
@@ -142,7 +146,7 @@ func staticRouteCleanup(nextHops []net.IP) {
 // the single join switch versions; this is to cleanup the logical entities for the
 // specified node if the node was deleted when the ovnkube-master pod was brought down
 // to do the version upgrade.
-func multiJoinSwitchGatewayCleanup(nodeName string, upgradeOnly bool) error {
+func multiJoinSwitchGatewayCleanup(ovnNBClient goovn.Client, nodeName string, upgradeOnly bool) error {
 	gatewayRouter := types.GWRouterPrefix + nodeName
 
 	// Get the gateway router port's IP address (connected to join switch)
@@ -173,7 +177,7 @@ func multiJoinSwitchGatewayCleanup(nodeName string, upgradeOnly bool) error {
 		}
 		nextHops = append(nextHops, gwIPAddr.IP)
 	}
-	staticRouteCleanup(nextHops)
+	staticRouteCleanup(ovnNBClient, nextHops)
 
 	// Remove the join switch that connects ovn_cluster_router to gateway router
 	_, stderr, err := util.RunOVNNbctl("--if-exist", "ls-del", "join_"+nodeName)

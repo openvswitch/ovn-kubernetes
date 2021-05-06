@@ -3,6 +3,7 @@ package ovn
 import (
 	"net"
 
+	goovn "github.com/ebay/go-ovn"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
@@ -18,6 +19,8 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 		config.PrepareTestConfig()
 		// TODO make contexts here for shared gw mode and local gw mode, right now this only tests shared gw
 		config.Gateway.Mode = config.GatewayModeShared
+
+		ovntest.ResetNumMockExecutions()
 	})
 
 	ginkgo.It("correctly sorts gateway routers", func() {
@@ -339,9 +342,6 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 			Output: nodeRouteUUID,
 		})
 		fexec.AddFakeCmdsNoOutputNoError([]string{
-			"ovn-nbctl --timeout=15 --if-exists remove logical_router ovn_cluster_router static_routes " + nodeRouteUUID,
-		})
-		fexec.AddFakeCmdsNoOutputNoError([]string{
 			"ovn-nbctl --timeout=15 --if-exist lsp-del jtor-GR_test-node",
 			"ovn-nbctl --timeout=15 --if-exist lr-del GR_test-node",
 			"ovn-nbctl --timeout=15 --if-exist ls-del ext_test-node",
@@ -364,7 +364,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		})
 		cleanupPBRandNATRules(fexec, nodeName, []*net.IPNet{hostSubnet})
 
-		err = gatewayCleanup(nodeName)
+		ovnNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
+		err = gatewayCleanup(ovnNBClient, nodeName)
+		gomega.Eventually(ovntest.GetNumMockExecutions, 2).Should(gomega.BeNumerically("==", 1), fexec.ErrorDesc)
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue())
 	})
@@ -392,17 +395,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 			Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find logical_router_static_route nexthop=\"100.64.0.1\"",
 			Output: v4RouteUUID,
 		})
-		fexec.AddFakeCmdsNoOutputNoError([]string{
-			"ovn-nbctl --timeout=15 --if-exists remove logical_router ovn_cluster_router static_routes " + v4RouteUUID,
-		})
 		fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 			Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find logical_router_static_route nexthop=\"fd98::1\"",
 			Output: v6RouteUUID,
 		})
-		fexec.AddFakeCmdsNoOutputNoError([]string{
-			"ovn-nbctl --timeout=15 --if-exists remove logical_router ovn_cluster_router static_routes " + v6RouteUUID,
-		})
-
 		fexec.AddFakeCmdsNoOutputNoError([]string{
 			"ovn-nbctl --timeout=15 --if-exist lsp-del jtor-GR_test-node",
 			"ovn-nbctl --timeout=15 --if-exist lr-del GR_test-node",
@@ -426,7 +422,10 @@ node4 chassis=912d592c-904c-40cd-9ef1-c2e5b49a33dd lb_force_snat_ip=100.64.0.4`,
 		})
 		cleanupPBRandNATRules(fexec, nodeName, hostSubnets)
 
-		err = gatewayCleanup(nodeName)
+		ovnNBClient := ovntest.NewMockOVNClient(goovn.DBNB)
+		err = gatewayCleanup(ovnNBClient, nodeName)
+		gomega.Eventually(ovntest.GetNumMockExecutions, 2).Should(gomega.BeNumerically("==", 2), fexec.ErrorDesc)
+
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		gomega.Expect(fexec.CalledMatchesExpected()).To(gomega.BeTrue())
 	})

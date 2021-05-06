@@ -185,7 +185,7 @@ func (oc *Controller) upgradeToSingleSwitchOVNTopology(existingNodeList *kapi.No
 
 		// for all nodes include the ones that were deleted, delete its gateway entities.
 		// See comments above the multiJoinSwitchGatewayCleanup() function for details.
-		err = multiJoinSwitchGatewayCleanup(nodeName, upgradeOnly)
+		err = multiJoinSwitchGatewayCleanup(oc.ovnNBClient, nodeName, upgradeOnly)
 		if err != nil {
 			return err
 		}
@@ -1160,7 +1160,7 @@ func (oc *Controller) deleteNode(nodeName string, hostSubnets []*net.IPNet, node
 		klog.Errorf("Error deleting node %s logical network: %v", nodeName, err)
 	}
 
-	if err := gatewayCleanup(nodeName); err != nil {
+	if err := gatewayCleanup(oc.ovnNBClient, nodeName); err != nil {
 		klog.Errorf("Failed to clean up node %s gateway: (%v)", nodeName, err)
 	}
 
