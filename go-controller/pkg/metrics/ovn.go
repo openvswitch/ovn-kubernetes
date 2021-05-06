@@ -2,9 +2,11 @@ package metrics
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
 	"strings"
 	"time"
+
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
+	"k8s.io/klog/v2"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 	"github.com/prometheus/client_golang/prometheus"
@@ -380,4 +382,33 @@ func RegisterOvnControllerMetrics() {
 	go ovnControllerConfigurationMetricsUpdater()
 	// ovn-controller coverage show metrics updater
 	go coverageShowMetricsUpdater(ovnController)
+	// Set IP family metric
+	ipFamilyMetricsPublisher()
+}
+
+func ipFamilyMetricsPublisher() {
+	var metricIPFamily = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: MetricOvnkubeNamespace,
+		Subsystem: MetricOvnkubeSubsystemMaster,
+		Name:      "ip_family",
+		Help: "A metric with a constant '1' value labeled by stack that " +
+			"specifies the IP families configured for the  cluster. Valid " +
+			"values are IPv4, IPv6 and Dual",
+	},
+		[]string{
+			"stack",
+		},
+	)
+	ovnRegistry.MustRegister(metricIPFamily)
+	metricIPFamily.WithLabelValues(getIPFamily()).Set(1)
+}
+
+func getIPFamily() string {
+	if config.IPv4Mode && config.IPv6Mode {
+		return "Dual"
+	}
+	if config.IPv6Mode {
+		return "IPv6"
+	}
+	return "IPv4"
 }
