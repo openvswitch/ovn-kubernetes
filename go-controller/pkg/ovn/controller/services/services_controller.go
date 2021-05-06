@@ -343,7 +343,7 @@ func (c *Controller) syncServices(key string) error {
 			// Reconcile OVN, update the load balancer with current endpoints
 
 			var currentLB string
-			// If any of the lbEps contain the a host IP we add to worker/GR LB separately, and not to cluster LB
+			// If any of the lbEps contain a host IP we add to worker/GR LB separately, and not to cluster LB
 			if hasHostEndpoints(eps.IPs) && config.Gateway.Mode == config.GatewayModeShared {
 				currentLB = loadbalancer.NodeLoadBalancer
 				if err := createPerNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port, eps.IPs, eps.Port); err != nil {

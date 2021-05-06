@@ -124,6 +124,25 @@ func DeleteLoadBalancerVIP(loadBalancer, vip string) error {
 	return nil
 }
 
+// DeleteLoadBalancerVIPs removes the VIPs across lbs in a single shot
+func DeleteLoadBalancerVIPs(loadBalancers, vips []string) error {
+	txn := util.NewNBTxn()
+	for _, loadBalancer := range loadBalancers {
+		for _, vip := range vips {
+			vipQuotes := fmt.Sprintf("\"%s\"", vip)
+			txn.Add("--if-exists", "remove", "load_balancer", loadBalancer, "vips", vipQuotes)
+		}
+	}
+	stdout, stderr, err := txn.Commit()
+	if err != nil {
+		// if we hit an error and fail to remove load balancer, we skip removing the rejectACL
+		return fmt.Errorf("error in deleting load balancer vip %v for %v"+
+			"stdout: %q, stderr: %q, error: %v",
+			vips, loadBalancers, stdout, stderr, err)
+	}
+	return nil
+}
+
 // UpdateLoadBalancer updates the VIP for sourceIP:sourcePort to point to targets (an
 // array of IP:port strings)
 func UpdateLoadBalancer(lb, vip string, targets []string) error {

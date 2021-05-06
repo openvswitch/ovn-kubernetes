@@ -65,10 +65,6 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 						Output: loadbalancerTCP,
 					},
 					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "10.0.0.1:80"`,
-						Output: "",
-					},
-					{
 						Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=2e290f10-3652-11eb-839b-a8a1590cda29",
 						Output: "loadbalancer1",
 					},
@@ -77,11 +73,9 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 						Output: "workerlb",
 					},
 					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer loadbalancer1 vips "10.0.0.1:80"`,
-						Output: "",
-					},
-					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer workerlb vips "10.0.0.1:80"`,
+						Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "10.0.0.1:80"` +
+							` -- --if-exists remove load_balancer loadbalancer1 vips "10.0.0.1:80"` +
+							` -- --if-exists remove load_balancer workerlb vips "10.0.0.1:80"`,
 						Output: "",
 					},
 					{

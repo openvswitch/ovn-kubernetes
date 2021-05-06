@@ -178,15 +178,8 @@ func TestSyncServices(t *testing.T) {
 					Output: idlingloadbalancerTCP,
 				},
 				{
-					Cmd:    "ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda30 vips \"192.168.1.1:80\"",
-					Output: "",
-				},
-				{
-					Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-idling-lb-tcp=yes",
-					Output: idlingloadbalancerTCP,
-				},
-				{
-					Cmd:    "ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda30 vips \"5.5.5.5:32766\"",
+					Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda30 vips "192.168.1.1:80"` +
+						` -- --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda30 vips "5.5.5.5:32766"`,
 					Output: "",
 				},
 				{
@@ -456,11 +449,11 @@ func TestUpdateServicePorts(t *testing.T) {
 		Output: "load_balancer_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
+		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
+		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
 		Output: "",
 	})
 	// update service starts here
@@ -490,11 +483,11 @@ func TestUpdateServicePorts(t *testing.T) {
 		Output: "load_balancer_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:8888"`,
+		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
+		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:8888"`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -507,10 +500,6 @@ func TestUpdateServicePorts(t *testing.T) {
 	})
 	// Remove the old ServicePort
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    fmt.Sprintf("ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=%s", gatewayRouter1),
 		Output: "load_balancer_1",
 	})
@@ -519,11 +508,9 @@ func TestUpdateServicePorts(t *testing.T) {
 		Output: "node_load_balancer_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer node_load_balancer_1 vips "192.168.1.1:80"`,
+		Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer node_load_balancer_1 vips "192.168.1.1:80"`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -643,14 +630,6 @@ func TestUpdateServiceEndpointsToHost(t *testing.T) {
 		Output: "load_balancer_worker_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_worker_1 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
 		Output: "load_balancer_2",
 	})
@@ -659,11 +638,10 @@ func TestUpdateServiceEndpointsToHost(t *testing.T) {
 		Output: "load_balancer_worker_2",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_2 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_worker_2 vips "192.168.1.1:80"`,
+		Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_worker_1 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_2 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_worker_2 vips "192.168.1.1:80"`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -845,14 +823,6 @@ func TestUpdateServiceEndpointsLessRemoveOps(t *testing.T) {
 		Output: "load_balancer_worker_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_worker_1 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=GR_2`,
 		Output: "load_balancer_2",
 	})
@@ -861,11 +831,10 @@ func TestUpdateServiceEndpointsLessRemoveOps(t *testing.T) {
 		Output: "load_balancer_worker_2",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_2 vips "192.168.1.1:80"`,
-		Output: "",
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_worker_2 vips "192.168.1.1:80"`,
+		Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_worker_1 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_2 vips "192.168.1.1:80"` +
+			` -- --if-exists remove load_balancer load_balancer_worker_2 vips "192.168.1.1:80"`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{

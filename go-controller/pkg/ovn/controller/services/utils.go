@@ -43,24 +43,32 @@ func deleteVIPsFromNonIdlingOVNBalancers(vips sets.String, name, namespace strin
 		return errors.Wrapf(err, "failed to retrieve OVN gateway routers")
 	}
 
-	// Obtain the VIPs associated to the Service from the Service Tracker
+	vipsPerProtocol := map[v1.Protocol]sets.String{}
+	lbsPerProtocol := map[v1.Protocol]sets.String{}
+	foundProtocols := map[v1.Protocol]struct{}{}
+
+	// Get load balancers for each Node
 	for vipKey := range vips {
 		// the VIP is stored with the format IP:Port/Protocol
 		vip, proto := splitVirtualIPKey(vipKey)
-		// ClusterIP use a global load balancer per protocol
+		foundProtocols[proto] = struct{}{}
+		if _, ok := vipsPerProtocol[proto]; !ok {
+			vipsPerProtocol[proto] = sets.NewString(vip)
+		} else {
+			vipsPerProtocol[proto].Insert(vip)
+		}
+		klog.Infof("Deleting VIP: %s from idling OVN LoadBalancer for service %s on namespace %s",
+			vip, name, namespace)
+		if _, ok := lbsPerProtocol[proto]; ok {
+			// already got the load balancers for this protocol, don't do it again
+			continue
+		}
 		lbID, err := loadbalancer.GetOVNKubeLoadBalancer(proto)
 		if err != nil {
 			klog.Errorf("Error getting OVN LoadBalancer for protocol %s", proto)
 			return err
 		}
-		// Delete the Service VIP from OVN
-		klog.Infof("Deleting service %s on namespace %s from OVN", name, namespace)
-		if err := loadbalancer.DeleteLoadBalancerVIP(lbID, vip); err != nil {
-			klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, lbID)
-			return err
-		}
-
-		// Configure the NodePort in each Node Gateway Router
+		lbsPerProtocol[proto] = sets.NewString(lbID)
 		for _, gatewayRouter := range gatewayRouters {
 			gatewayLB, err := gateway.GetGatewayLoadBalancer(gatewayRouter, proto)
 			if err != nil {
@@ -69,20 +77,21 @@ func deleteVIPsFromNonIdlingOVNBalancers(vips sets.String, name, namespace strin
 				// TODO: why continue? should we error and requeue and retry?
 				continue
 			}
+			lbsPerProtocol[proto].Insert(gatewayLB)
 			workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
 			workerLB, err := loadbalancer.GetWorkerLoadBalancer(workerNode, proto)
 			if err != nil {
 				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
 				continue
 			}
-			// Delete the Service VIP from OVN
-			klog.Infof("Deleting service %s on namespace %s from OVN", name, namespace)
-			for _, lb := range []string{gatewayLB, workerLB} {
-				if err := loadbalancer.DeleteLoadBalancerVIP(lb, vip); err != nil {
-					klog.Errorf("Error deleting VIP %s on OVN LoadBalancer %s", vip, lbID)
-					return err
-				}
-			}
+			lbsPerProtocol[proto].Insert(workerLB)
+		}
+	}
+
+	for proto := range foundProtocols {
+		if err := loadbalancer.DeleteLoadBalancerVIPs(lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
+			klog.Errorf("Error deleting VIP %v on OVN LoadBalancer %v", vipsPerProtocol[proto].List(), lbsPerProtocol[proto].List())
+			return err
 		}
 	}
 	return nil
@@ -94,19 +103,37 @@ func deleteVIPsFromIdlingBalancer(vipProtocols sets.String, name, namespace stri
 		return nil
 	}
 
+	vipsPerProtocol := map[v1.Protocol]sets.String{}
+	lbsPerProtocol := map[v1.Protocol]sets.String{}
+	foundProtocols := map[v1.Protocol]struct{}{}
+
 	// Obtain the VIPs associated to the Service
 	for vipKey := range vipProtocols {
 		// the VIP is stored with the format IP:Port/Protocol
 		vip, proto := splitVirtualIPKey(vipKey)
+		if _, ok := vipsPerProtocol[proto]; !ok {
+			vipsPerProtocol[proto] = sets.NewString(vip)
+		} else {
+			vipsPerProtocol[proto].Insert(vip)
+		}
+		foundProtocols[proto] = struct{}{}
 		klog.Infof("Deleting VIP: %s from idling OVN LoadBalancer for service %s on namespace %s",
 			vip, name, namespace)
+		if _, ok := lbsPerProtocol[proto]; ok {
+			// lb already found for this protocol, don't do it again
+			continue
+		}
 		lbID, err := loadbalancer.GetOVNKubeIdlingLoadBalancer(proto)
 		if err != nil {
 			klog.Errorf("Error getting OVN idling LoadBalancer for protocol %s %v", proto, err)
 			return err
 		}
-		if err := loadbalancer.DeleteLoadBalancerVIP(lbID, vip); err != nil {
-			klog.Errorf("Error deleting VIP %s on idling OVN LoadBalancer %s %v", vip, lbID, err)
+		lbsPerProtocol[proto] = sets.NewString(lbID)
+	}
+	for proto := range foundProtocols {
+		if err := loadbalancer.DeleteLoadBalancerVIPs(lbsPerProtocol[proto].List(), vipsPerProtocol[proto].List()); err != nil {
+			klog.Errorf("Error deleting VIPs %v on idling OVN LoadBalancer %s %v",
+				vipsPerProtocol[proto].List(), lbsPerProtocol[proto].List(), err)
 			return err
 		}
 	}
@@ -231,7 +258,6 @@ func createPerNodePhysicalVIPs(isIPv6 bool, protocol v1.Protocol, sourcePort int
 }
 
 // deleteNodeVIPs removes load balancers on a per node basis for GR and worker switch LBs
-// if empty svcIP is provided, then the physical IPs will be used for the node
 func deleteNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32) error {
 	klog.V(5).Infof("Searching to remove Gateway VIPs - %s, %d", protocol, sourcePort)
 	gatewayRouters, _, err := gateway.GetOvnGateways()
@@ -239,21 +265,12 @@ func deleteNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32) err
 		klog.Errorf("Error while searching for gateways: %v", err)
 		return err
 	}
-
+	var loadBalancers []string
 	for _, gatewayRouter := range gatewayRouters {
-		var loadBalancers []string
 		gatewayLB, err := gateway.GetGatewayLoadBalancer(gatewayRouter, protocol)
 		if err != nil {
 			klog.Errorf("Gateway router %s does not have load balancer (%v)", gatewayRouter, err)
 			continue
-		}
-		ips := svcIPs
-		if len(ips) == 0 {
-			ips, err = gateway.GetGatewayPhysicalIPs(gatewayRouter)
-			if err != nil {
-				klog.Errorf("Gateway router %s does not have physical ip (%v)", gatewayRouter, err)
-				continue
-			}
 		}
 		loadBalancers = append(loadBalancers, gatewayLB)
 		if config.Gateway.Mode == config.GatewayModeShared {
@@ -265,16 +282,15 @@ func deleteNodeVIPs(svcIPs []string, protocol v1.Protocol, sourcePort int32) err
 			}
 			loadBalancers = append(loadBalancers, workerLB)
 		}
-		for _, loadBalancer := range loadBalancers {
-			for _, ip := range ips {
-				// With the physical_ip:sourcePort as the VIP, delete an entry in 'load_balancer'.
-				vip := util.JoinHostPortInt32(ip, sourcePort)
-				klog.V(5).Infof("Removing gateway VIP: %s from load balancer: %s", vip, loadBalancer)
-				if err := loadbalancer.DeleteLoadBalancerVIP(loadBalancer, vip); err != nil {
-					return err
-				}
-			}
-		}
+	}
+	vips := make([]string, 0, len(svcIPs))
+	for _, ip := range svcIPs {
+		vips = append(vips, util.JoinHostPortInt32(ip, sourcePort))
+	}
+
+	klog.V(5).Infof("Removing gateway VIPs: %v from load balancers: %v", vips, loadBalancers)
+	if err := loadbalancer.DeleteLoadBalancerVIPs(loadBalancers, vips); err != nil {
+		return err
 	}
 	return nil
 }
