@@ -1115,18 +1115,28 @@ func (oc *Controller) deleteNodeHostSubnet(nodeName string, subnet *net.IPNet) e
 }
 
 func (oc *Controller) deleteNodeLogicalNetwork(nodeName string) error {
+
+	fmt.Printf("IRL: NodeName: %s RouterPort: %s \n", nodeName, types.RouterToSwitchPrefix)
+	var cmds []*goovn.OvnCommand
+
 	// Remove the logical switch associated with the node
-	if _, stderr, err := util.RunOVNNbctl("--if-exist", "ls-del", nodeName); err != nil {
-		return fmt.Errorf("failed to delete logical switch %s, "+
-			"stderr: %q, error: %v", nodeName, stderr, err)
+	LSDelCmd, err := oc.ovnNBClient.LSDel(nodeName)
+	if err != nil {
+		return fmt.Errorf("failed to delete  logical switch %s error: %v", nodeName, err)
 	}
+	cmds = append(cmds, LSDelCmd)
 
 	// Remove the patch port that connects distributed router to node's logical switch
-	if _, stderr, err := util.RunOVNNbctl("--if-exist", "lrp-del", types.RouterToSwitchPrefix+nodeName); err != nil {
-		return fmt.Errorf("failed to delete logical router port %s%s, "+
-			"stderr: %q, error: %v", types.RouterToSwitchPrefix, nodeName, stderr, err)
+	LRPDelCmd, err := oc.ovnNBClient.LRPDel(nodeName, types.RouterToSwitchPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to delete logical router port %s%s, ", types.RouterToSwitchPrefix, nodeName)
 	}
+	cmds = append(cmds, LRPDelCmd)
 
+	err = oc.ovnNBClient.Execute(cmds...)
+	if err != nil {
+		return fmt.Errorf("failed to execute deleteNodeLogicalNetwork %s%s \n", types.RouterToSwitchPrefix, nodeName)
+	}
 	return nil
 }
 
