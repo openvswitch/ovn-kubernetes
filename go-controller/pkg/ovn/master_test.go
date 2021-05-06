@@ -229,11 +229,7 @@ func defaultFakeExec(nodeSubnet, nodeName string, sctpSupport bool) (*ovntest.Fa
 		"ovn-nbctl --timeout=15 --may-exist ls-add " + nodeName + " -- set logical_switch " + nodeName + " other-config:subnet=" + nodeSubnet + " other-config:exclude_ips=" + nodeMgmtPortIP.String() + ".." + hybridOverlayIP.String(),
 		"ovn-nbctl --timeout=15 set logical_switch " + nodeName + " other-config:mcast_snoop=\"true\"",
 		"ovn-nbctl --timeout=15 set logical_switch " + nodeName + " other-config:mcast_querier=\"true\" other-config:mcast_eth_src=\"" + lrpMAC + "\" other-config:mcast_ip4_src=\"" + gwIP + "\"",
-		"ovn-nbctl --timeout=15 -- --may-exist lsp-add " + nodeName + " " + types.SwitchToRouterPrefix + nodeName + " -- lsp-set-type " + types.SwitchToRouterPrefix + nodeName + " router -- lsp-set-options " + types.SwitchToRouterPrefix + nodeName + " router-port=" + types.RouterToSwitchPrefix + nodeName + " -- lsp-set-addresses " + types.SwitchToRouterPrefix + nodeName + " " + lrpMAC,
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    "ovn-nbctl --timeout=15 get logical_switch_port " + types.SwitchToRouterPrefix + nodeName + " _uuid",
-		Output: fakeUUID + "\n",
+		"ovn-nbctl --timeout=15" + " lsp-set-type " + types.SwitchToRouterPrefix + nodeName + " router",
 	})
 
 	fexec.AddFakeCmdsNoOutputNoError([]string{
@@ -246,12 +242,9 @@ func defaultFakeExec(nodeSubnet, nodeName string, sctpSupport bool) (*ovntest.Fa
 		})
 	}
 	fexec.AddFakeCmdsNoOutputNoError([]string{
-		"ovn-nbctl --timeout=15 -- --may-exist lsp-add " + nodeName + " " + types.K8sPrefix + nodeName + " -- lsp-set-type " + types.K8sPrefix + nodeName + "  -- lsp-set-options " + types.K8sPrefix + nodeName + "  -- lsp-set-addresses " + types.K8sPrefix + nodeName + " " + mgmtMAC + " " + nodeMgmtPortIP.String(),
+		"ovn-nbctl --timeout=15" + " lsp-set-type " + types.K8sPrefix + nodeName + " ",
 	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    "ovn-nbctl --timeout=15 get logical_switch_port " + types.K8sPrefix + nodeName + " _uuid",
-		Output: fakeUUID + "\n",
-	})
+
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 lsp-list " + nodeName,
 		Output: "29df5ce5-2802-4ee5-891f-4fb27ca776e9 (" + types.K8sPrefix + nodeName + ")",
@@ -319,23 +312,14 @@ func addNodeLogicalFlows(fexec *ovntest.FakeExec, node *tNode, clusterCIDR strin
 	fexec.AddFakeCmdsNoOutputNoError([]string{
 		"ovn-nbctl --timeout=15 --if-exists lrp-del " + types.RouterToSwitchPrefix + node.Name + " -- lrp-add ovn_cluster_router " + types.RouterToSwitchPrefix + node.Name + " " + node.NodeLRPMAC + " " + node.NodeGWIP,
 		"ovn-nbctl --timeout=15 --may-exist ls-add " + node.Name + " -- set logical_switch " + node.Name + " other-config:subnet=" + node.NodeSubnet + " other-config:exclude_ips=" + node.NodeMgmtPortIP,
-		"ovn-nbctl --timeout=15 -- --may-exist lsp-add " + node.Name + " " + types.SwitchToRouterPrefix + node.Name + " -- lsp-set-type " + types.SwitchToRouterPrefix + node.Name + " router -- lsp-set-options " + types.SwitchToRouterPrefix + node.Name + " router-port=" + types.RouterToSwitchPrefix + node.Name + " -- lsp-set-addresses " + types.SwitchToRouterPrefix + node.Name + " " + node.NodeLRPMAC,
-	})
-
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    "ovn-nbctl --timeout=15 get logical_switch_port " + types.SwitchToRouterPrefix + node.Name + " _uuid",
-		Output: fakeUUID + "\n",
+		"ovn-nbctl --timeout=15" + " lsp-set-type " + types.SwitchToRouterPrefix + node.Name + " router",
 	})
 
 	fexec.AddFakeCmdsNoOutputNoError([]string{
 		"ovn-nbctl --timeout=15 set logical_switch " + node.Name + " load_balancer=" + node.TCPLBUUID,
 		"ovn-nbctl --timeout=15 add logical_switch " + node.Name + " load_balancer " + node.UDPLBUUID,
 		"ovn-nbctl --timeout=15 add logical_switch " + node.Name + " load_balancer " + node.SCTPLBUUID,
-		"ovn-nbctl --timeout=15 -- --may-exist lsp-add " + node.Name + " " + types.K8sPrefix + node.Name + " -- lsp-set-type " + types.K8sPrefix + node.Name + "  -- lsp-set-options " + types.K8sPrefix + node.Name + "  -- lsp-set-addresses " + types.K8sPrefix + node.Name + " " + node.NodeMgmtPortMAC + " " + node.NodeMgmtPortIP,
-	})
-	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
-		Cmd:    "ovn-nbctl --timeout=15 get logical_switch_port " + types.K8sPrefix + node.Name + " _uuid",
-		Output: fakeUUID + "\n",
+		"ovn-nbctl --timeout=15" + " lsp-set-type " + types.K8sPrefix + node.Name + " ",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 lsp-list " + node.Name,

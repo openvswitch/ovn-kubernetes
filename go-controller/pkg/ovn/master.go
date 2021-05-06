@@ -533,29 +533,60 @@ func (oc *Controller) SetupMaster(masterNodeName string) error {
 	return nil
 }
 
-func addNodeLogicalSwitchPort(logicalSwitch, portName, portType, addresses, options string) (string, error) {
-	stdout, stderr, err := util.RunOVNNbctl("--", "--may-exist", "lsp-add", logicalSwitch, portName,
-		"--", "lsp-set-type", portName, portType,
-		"--", "lsp-set-options", portName, options,
-		"--", "lsp-set-addresses", portName, addresses)
+func addNodeLogicalSwitchPort(ovnNBClient goovn.Client, logicalSwitch, portName, portType, addresses string, options map[string]string) (string, error) {
+	var cmds []*goovn.OvnCommand
+
+	lsp, err := ovnNBClient.LSPGet(portName)
+	if err != nil && err != goovn.ErrorNotFound && err != goovn.ErrorSchema {
+		return "", fmt.Errorf("unable to get the lsp: %s from the nbdb: %s", portName, err)
+	}
+
+	// Add LSP if it does not exist
+	if lsp == nil {
+		lspAddCmd, err := ovnNBClient.LSPAdd(logicalSwitch, portName)
+		if err != nil {
+			return "", fmt.Errorf("failed to add logical port %s to switch %s error: %v", portName, logicalSwitch, err)
+		}
+		cmds = append(cmds, lspAddCmd)
+	}
+	cmd, err := ovnNBClient.LSPSetAddress(portName, addresses)
 	if err != nil {
-		klog.Errorf("Failed to add logical port %s to switch %s, stdout: %q, stderr: %q, error: %v", portName, logicalSwitch, stdout, stderr, err)
+		return "", fmt.Errorf("failed to set address %s to port %s error: %v", addresses, portName, err)
+	}
+	cmds = append(cmds, cmd)
+	if len(options) != 0 {
+		cmd, err = ovnNBClient.LSPSetOptions(portName, options)
+		if err != nil {
+			return "", fmt.Errorf("failed to set options  %v to port %s error: %v", options, portName, err)
+		}
+		cmds = append(cmds, cmd)
+	}
+
+	err = ovnNBClient.Execute(cmds...)
+	if err != nil {
+		return "", fmt.Errorf("failed to add Logical Switch Portname %s  %v", portName, err)
+	}
+
+	// TODO: Replace once patch for LSPType gets merged in go-ovn
+	stdout, stderr, err := util.RunOVNNbctl("lsp-set-type", portName, portType)
+	if err != nil {
+		klog.Errorf("Failed to set type %s for logical port %s to switch %s, stdout: %q, stderr: %q, error: %v", portType, portName, logicalSwitch, stdout, stderr, err)
 		return "", err
 	}
 
 	// UUID must be retrieved separately from the lsp-add transaction since
 	// (as of OVN 2.12) a bogus UUID is returned if they are part of the same
 	// transaction.
-	uuid, stderr, err := util.RunOVNNbctl("get", "logical_switch_port", portName, "_uuid")
+	lsp, err = ovnNBClient.LSPGet(portName)
 	if err != nil {
-		klog.Errorf("Error getting UUID for logical port %s "+
-			"stdout: %q, stderr: %q (%v)", portName, uuid, stderr, err)
-		return "", err
+		return "", fmt.Errorf("error getting UUID for logical port %s  %v lsp: %v", portName, err, lsp)
 	}
-	if uuid == "" {
-		return uuid, fmt.Errorf("invalid logical port %s uuid", portName)
+
+	if lsp.UUID == "" {
+		return "", fmt.Errorf("logical switch port missing after add, possible race condition for port: %s", portName)
 	}
-	return uuid, nil
+
+	return lsp.UUID, nil
 }
 
 func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net.IPNet) error {
@@ -599,7 +630,8 @@ func (oc *Controller) syncNodeManagementPort(node *kapi.Node, hostSubnets []*net
 
 	// Create this node's management logical port on the node switch
 	portName := types.K8sPrefix + node.Name
-	uuid, err := addNodeLogicalSwitchPort(node.Name, portName, "", addresses, "")
+	options := make(map[string]string)
+	uuid, err := addNodeLogicalSwitchPort(oc.ovnNBClient, node.Name, portName, "", addresses, options)
 	if err != nil {
 		return err
 	}
@@ -857,8 +889,10 @@ func (oc *Controller) ensureNodeLogicalNetwork(node *kapi.Node, hostSubnets []*n
 	}
 
 	// Connect the switch to the router.
-	nodeSwToRtrUUID, err := addNodeLogicalSwitchPort(nodeName, types.SwitchToRouterPrefix+nodeName,
-		"router", nodeLRPMAC.String(), "router-port="+types.RouterToSwitchPrefix+nodeName)
+	options := make(map[string]string)
+	options["router-port"] = types.RouterToSwitchPrefix + nodeName
+	nodeSwToRtrUUID, err := addNodeLogicalSwitchPort(oc.ovnNBClient, nodeName, types.SwitchToRouterPrefix+nodeName,
+		"router", nodeLRPMAC.String(), options)
 	if err != nil {
 		klog.Errorf("Failed to add logical port to switch, stdout: %q, stderr: %q, error: %v", stdout, stderr, err)
 		return err
