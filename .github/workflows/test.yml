@@ -43,10 +43,38 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
       id: go
 
-    - name: Check out code into the Go module directory
+    - name: Check out code into the Go module directory - from master branch
+      uses: actions/checkout@v2
+      with:
+        ref: master
+
+    - name: Build - from master branch
+      run: |
+        set -x
+        pushd go-controller
+           make
+           make windows
+        popd
+
+    - name: Build docker image - from master branch
+      run: |
+        pushd dist/images
+          sudo cp -f ../../go-controller/_output/go/bin/ovn* .
+          echo "ref: $(git rev-parse  --symbolic-full-name HEAD)  commit: $(git rev-parse  HEAD)" > git_info
+          docker build -t ovn-daemonset-f:dev -f Dockerfile.fedora .
+          mkdir _output
+          docker save ovn-daemonset-f:dev > _output/image-master.tar
+        popd
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: test-image-master
+        path: dist/images/_output/image-master.tar
+
+    - name: Check out code into the Go module directory - from current pr branch
       uses: actions/checkout@v2
 
-    - name: Build and Test
+    - name: Build and Test - from current pr branch
       run: |
         set -x
         pushd go-controller
@@ -55,20 +83,20 @@ jobs:
            COVERALLS=1 CONTAINER_RUNNABLE=1 make check
         popd
 
-    - name: Build docker image
+    - name: Build docker image - from current pr branch
       run: |
         pushd dist/images
           sudo cp -f ../../go-controller/_output/go/bin/ovn* .
           echo "ref: $(git rev-parse  --symbolic-full-name HEAD)  commit: $(git rev-parse  HEAD)" > git_info
-          docker build -t ovn-daemonset-f:dev -f Dockerfile.fedora .
+          docker build -t ovn-daemonset-f:pr -f Dockerfile.fedora .
           mkdir _output
-          docker save ovn-daemonset-f:dev > _output/image.tar
+          docker save ovn-daemonset-f:pr > _output/image-pr.tar
         popd
 
     - uses: actions/upload-artifact@v2
       with:
-        name: test-image
-        path: dist/images/_output/image.tar
+        name: test-image-pr
+        path: dist/images/_output/image-pr.tar
 
     - name: Upload Junit Reports
       if: always()
@@ -196,16 +224,42 @@ jobs:
 
     - uses: actions/download-artifact@v2
       with:
-        name: test-image
+        name: test-image-master
 
     - name: Load docker image
       run: |
-        docker load --input image.tar
+        docker load --input image-master.tar
 
     - name: kind setup
       run: |
         export OVN_IMAGE="ovn-daemonset-f:dev"
         make -C test install-kind
+
+    - name: Export logs
+      if: always()
+      run: |
+        mkdir -p /tmp/kind/logs-kind-master
+        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs-kind-master
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}-before-upgrade
+        path: /tmp/kind/logs-kind-master
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image-pr
+
+    - name: Load docker image
+      run: |
+        docker load --input image-pr.tar
+
+    - name: ovn upgrade
+      run: |
+        export OVN_IMAGE="ovn-daemonset-f:pr"
+        make -C test upgrade-ovn
 
     - name: Run Tests
       run: |
@@ -235,15 +289,15 @@ jobs:
     - name: Export logs
       if: always()
       run: |
-        mkdir -p /tmp/kind/logs
-        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
+        mkdir -p /tmp/kind/logs-kind-pr-branch
+        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs-kind-pr-branch
 
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v2
       with:
-        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
-        path: /tmp/kind/logs
+        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}-after-upgrade
+        path: /tmp/kind/logs-kind-pr-branch
 
   e2e-dual-conversion:
     name: e2e-dual-conversion
@@ -288,16 +342,42 @@ jobs:
 
     - uses: actions/download-artifact@v2
       with:
-        name: test-image
+        name: test-image-master
 
     - name: Load docker image
       run: |
-        docker load --input image.tar
+        docker load --input image-master.tar
 
     - name: kind IPv4 setup
       run: |
         export OVN_IMAGE="ovn-daemonset-f:dev"
         make -C test install-kind
+
+    - name: Export logs
+      if: always()
+      run: |
+        mkdir -p /tmp/kind/logs-kind-master
+        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs-kind-master
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}-before-upgrade
+        path: /tmp/kind/logs-kind-master
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image-pr
+
+    - name: Load docker image
+      run: |
+        docker load --input image-pr.tar
+
+    - name: ovn upgrade
+      run: |
+        export OVN_IMAGE="ovn-daemonset-f:pr"
+        make -C test upgrade-ovn
 
     - name: Run Single-Stack Tests
       run: |
@@ -337,15 +417,15 @@ jobs:
     - name: Export logs
       if: always()
       run: |
-        mkdir -p /tmp/kind/logs
-        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs
+        mkdir -p /tmp/kind/logs-kind-pr-branch
+        kind export logs --name ${KIND_CLUSTER_NAME} --loglevel=debug /tmp/kind/logs-kind-pr-branch
 
     - name: Upload logs
       if: always()
       uses: actions/upload-artifact@v2
       with:
-        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
-        path: /tmp/kind/logs
+        name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}-after-upgrade
+        path: /tmp/kind/logs-kind-pr-branch
 
   e2e-periodic:
     name: e2e-periodic
