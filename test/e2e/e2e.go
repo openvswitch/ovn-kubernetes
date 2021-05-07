@@ -465,9 +465,9 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 // Test pod connectivity to other host IP addresses
 var _ = ginkgo.Describe("test e2e pod connectivity to host addresses", func() {
 	const (
-		ovnWorkerNode    string = "ovn-worker"
-		targetIP         string = "123.123.123.123"
-		svcname          string = "node-e2e-to-host"
+		ovnWorkerNode string = "ovn-worker"
+		targetIP      string = "123.123.123.123"
+		svcname       string = "node-e2e-to-host"
 	)
 
 	f := framework.NewDefaultFramework(svcname)
@@ -2520,4 +2520,78 @@ var _ = ginkgo.Describe("e2e delete databases", func() {
 		framework.Logf("test simple connectivity from new pod to API server,after recovery")
 		singlePodConnectivityTest(f, "after-delete-db-pods")
 	})
+})
+
+var _ = ginkgo.Describe("e2e IGMP validation", func() {
+	const (
+		svcname              string = "igmp-test"
+		ovnNs                string = "ovn-kubernetes"
+		port                 string = "8080"
+		ovnWorkerNode        string = "ovn-worker"
+		ovnWorkerNode2       string = "ovn-worker2"
+		mcastGroup           string = "224.1.1.1"
+		multicastListenerPod string = "multicast-listener-test-pod"
+		multicastSourcePod   string = "multicast-source-test-pod"
+		tcpdumpFileName      string = "tcpdump.txt"
+		retryTimeout                = 5 * time.Minute // polling timeout
+	)
+	var (
+		tcpDumpCommand = []string{"bash", "-c",
+			fmt.Sprintf("apk update; apk add tcpdump ; tcpdump multicast > %s", tcpdumpFileName)}
+		// Multicast group (-c 224.1.1.1), UDP (-u), TTL (-T 2), during (-t 3000) seconds, report every (-i 5) seconds
+		multicastSourceCommand = []string{"bash", "-c",
+			fmt.Sprintf("iperf -c %s -u -T 2 -t 3000 -i 5", mcastGroup)}
+	)
+	f := framework.NewDefaultFramework(svcname)
+	ginkgo.It("can retrieve multicast IGMP query", func() {
+
+		// Enable multicast of the test namespace annotation
+		annotateArgs := []string{
+			"annotate",
+			"namespace",
+			f.Namespace.Name,
+			fmt.Sprintf("k8s.ovn.org/multicast-enabled=%s", "true"),
+		}
+		framework.Logf("annotating the IGMP test namespace to a enable multicast")
+		framework.RunKubectlOrDie(f.Namespace.Name, annotateArgs...)
+
+		// Create a multicast source pod
+		ginkgo.By("creating a multicast source pod in node " + ovnWorkerNode)
+		createGenericPod(f, multicastSourcePod, ovnWorkerNode, f.Namespace.Name, multicastSourceCommand)
+
+		// Create a multicast listener pod
+		ginkgo.By("creating a multicast listener pod in node " + ovnWorkerNode2)
+		createGenericPod(f, multicastListenerPod, ovnWorkerNode2, f.Namespace.Name, tcpDumpCommand)
+
+		// Wait for tcpdump on listener pod to be ready
+		err := wait.PollImmediate(retryInterval, retryTimeout, func() (bool, error) {
+			kubectlOut, err := framework.RunKubectl(f.Namespace.Name, "exec", multicastListenerPod, "--", "/bin/bash", "-c", "ls")
+			if err != nil {
+				framework.Failf("failed to retrieve multicast IGMP query: " + err.Error())
+			}
+			if !strings.Contains(kubectlOut, tcpdumpFileName) {
+				return false, nil
+			}
+			return true, nil
+		})
+		if err != nil {
+			framework.Failf("failed to retrieve multicast IGMP query: " + err.Error())
+		}
+
+		// The multicast listener pod join multicast group (-B 224.1.1.1), UDP (-u), during (-t 30) seconds, report every (-i 5) seconds
+		ginkgo.By("multicast listener pod join multicast group")
+		framework.RunKubectl(f.Namespace.Name, "exec", multicastListenerPod, "--", "/bin/bash", "-c", fmt.Sprintf("iperf -s -B %s -u -t 30 -i 5", mcastGroup))
+
+		ginkgo.By(fmt.Sprintf("verifying that the IGMP query has been received"))
+		kubectlOut, err := framework.RunKubectl(f.Namespace.Name, "exec", multicastListenerPod, "--", "/bin/bash", "-c", fmt.Sprintf("cat %s | grep igmp", tcpdumpFileName))
+		if err != nil {
+			framework.Failf("failed to retrieve multicast IGMP query: " + err.Error())
+		}
+		framework.Logf("output:")
+		framework.Logf(kubectlOut)
+		if kubectlOut == "" {
+			framework.Failf("failed to retrieve multicast IGMP query: igmp messages on the tcpdump logfile not found")
+		}
+	})
+
 })
