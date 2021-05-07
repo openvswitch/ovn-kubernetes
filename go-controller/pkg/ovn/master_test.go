@@ -6,6 +6,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	goovn "github.com/ebay/go-ovn"
@@ -947,6 +948,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 		app      *cli.App
 		f        *factory.WatchFactory
 		stopChan chan struct{}
+		wg       *sync.WaitGroup
 	)
 
 	const (
@@ -962,11 +964,13 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 		app.Name = "test"
 		app.Flags = config.Flags
 		stopChan = make(chan struct{})
+		wg = &sync.WaitGroup{}
 	})
 
 	ginkgo.AfterEach(func() {
 		close(stopChan)
 		f.Shutdown()
+		wg.Wait()
 	})
 
 	/* FIXME with update to local gw
@@ -1280,6 +1284,7 @@ var _ = ginkgo.Describe("Gateway Init Operations", func() {
 			clusterController.clusterRtrPortGroupUUID, err = createPortGroup(clusterController.ovnNBClient, clusterRtrPortGroupName, clusterRtrPortGroupName)
 			clusterController.clusterPortGroupUUID, err = createPortGroup(clusterController.ovnNBClient, clusterPortGroupName, clusterPortGroupName)
 
+			clusterController.StartServiceController(wg, false)
 			// Let the real code run and ensure OVN database sync
 			clusterController.WatchNodes()
 

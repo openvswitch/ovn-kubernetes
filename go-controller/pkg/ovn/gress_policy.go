@@ -2,10 +2,12 @@ package ovn
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	addressset "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/address_set"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
@@ -457,4 +459,72 @@ func (gp *gressPolicy) destroy() error {
 		gp.peerAddressSet = nil
 	}
 	return nil
+}
+
+// SVC can be of types 1. clusterIP, 2. NodePort, 3. LoadBalancer,
+// or 4.ExternalIP
+// TODO adjust for upstream patch when it lands:
+// https://bugzilla.redhat.com/show_bug.cgi?id=1908540
+func getSvcVips(service *v1.Service) []net.IP {
+	ips := make([]net.IP, 0)
+
+	if util.ServiceTypeHasNodePort(service) {
+		gatewayRouters, _, err := gateway.GetOvnGateways()
+		if err != nil {
+			klog.Errorf("Cannot get gateways: %s", err)
+		}
+		for _, gatewayRouter := range gatewayRouters {
+			// VIPs would be the physical IPS of the GRs(IPs of the node) in this case
+			physicalIPs, err := gateway.GetGatewayPhysicalIPs(gatewayRouter)
+			if err != nil {
+				klog.Errorf("Unable to get gateway router %s physical ip, error: %v", gatewayRouter, err)
+				continue
+			}
+
+			for _, physicalIP := range physicalIPs {
+				ip := net.ParseIP(physicalIP)
+				if ip == nil {
+					klog.Errorf("Failed to parse pod IP %q", physicalIP)
+					continue
+				}
+				ips = append(ips, ip)
+			}
+		}
+	}
+	if util.ServiceTypeHasClusterIP(service) {
+		if util.IsClusterIPSet(service) {
+			ip := net.ParseIP(service.Spec.ClusterIP)
+			if ip == nil {
+				klog.Errorf("Failed to parse pod IP %q", service.Spec.ClusterIP)
+			}
+			ips = append(ips, ip)
+		}
+
+		for _, ing := range service.Status.LoadBalancer.Ingress {
+			ip := net.ParseIP(ing.IP)
+			if ip == nil {
+				klog.Errorf("Failed to parse pod IP %q", ing)
+				continue
+			}
+			klog.V(5).Infof("Adding ingress IPs from Service: %s to VIP set", service.Name)
+			ips = append(ips, ip)
+		}
+
+		if len(service.Spec.ExternalIPs) > 0 {
+			for _, extIP := range service.Spec.ExternalIPs {
+				ip := net.ParseIP(extIP)
+				if ip == nil {
+					klog.Errorf("Failed to parse pod IP %q", extIP)
+					continue
+				}
+				klog.V(5).Infof("Adding external IPs from Service: %s to VIP set", service.Name)
+				ips = append(ips, ip)
+			}
+		}
+	}
+	if len(ips) == 0 {
+		klog.V(5).Infof("Service has no VIPs")
+		return nil
+	}
+	return ips
 }

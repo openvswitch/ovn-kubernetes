@@ -133,7 +133,7 @@ type Controller struct {
 
 // Run will not return until stopCh is closed. workers determines how many
 // endpoints will be handled in parallel.
-func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
+func (c *Controller) Run(workers int, stopCh <-chan struct{}, runRepair bool) error {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
@@ -146,14 +146,15 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 		return fmt.Errorf("error syncing cache")
 	}
 
-	// Run the repair controller only once
-	// it keeps in sync Kubernetes and OVN
-	// and handles removal of stale data on upgrades
-	klog.Info("Remove stale OVN services")
-	if err := c.repair.runOnce(); err != nil {
-		klog.Errorf("Error repairing services: %v")
+	if runRepair {
+		// Run the repair controller only once
+		// it keeps in sync Kubernetes and OVN
+		// and handles removal of stale data on upgrades
+		klog.Info("Remove stale OVN services")
+		if err := c.repair.runOnce(); err != nil {
+			klog.Errorf("Error repairing services: %v")
+		}
 	}
-
 	// Start the workers after the repair loop to avoid races
 	klog.Info("Starting workers")
 	for i := 0; i < workers; i++ {
