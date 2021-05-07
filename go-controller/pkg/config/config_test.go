@@ -1390,6 +1390,7 @@ mode=shared
 	})
 
 	Describe("OVN Kube Node config", func() {
+
 		It("Overrides value from Config file", func() {
 			// NOTE: We test this here as the test that overrides values also sets hybridOverlay to true
 			// which yields an invalid configuration.
@@ -1400,25 +1401,29 @@ mode=shared
 			}
 			file := config{
 				OvnKubeNode: OvnKubeNodeConfig{
-					Mode: types.NodeModeSmartNIC,
+					Mode:           types.NodeModeSmartNIC,
+					MgmtPortNetdev: "ens1f0",
 				},
 			}
 			err := buildOvnKubeNodeConfig(nil, &cliConfig, &file)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(OvnKubeNode.Mode).To(gomega.Equal(types.NodeModeSmartNIC))
 		})
+
 		It("Overrides value from CLI", func() {
 			// NOTE: We test this here as the test that overrides values also sets hybridOverlay to true
 			// which yields an invalid configuration.
 			cliConfig := config{
 				OvnKubeNode: OvnKubeNodeConfig{
-					Mode: types.NodeModeSmartNIC,
+					Mode:           types.NodeModeSmartNIC,
+					MgmtPortNetdev: "ens1f0",
 				},
 			}
 			err := buildOvnKubeNodeConfig(nil, &cliConfig, &config{})
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(OvnKubeNode.Mode).To(gomega.Equal(types.NodeModeSmartNIC))
 		})
+
 		It("Fails with unsupported mode", func() {
 			cliConfig := config{
 				OvnKubeNode: OvnKubeNodeConfig{
@@ -1441,6 +1446,28 @@ mode=shared
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(err.Error()).To(gomega.ContainSubstring(
 				"hybrid overlay is not supported with ovnkube-node mode"))
+		})
+
+		It("Fails if management port is not provided and ovnkube node mode is smart-nic", func() {
+			cliConfig := config{
+				OvnKubeNode: OvnKubeNodeConfig{
+					Mode: types.NodeModeSmartNIC,
+				},
+			}
+			err := buildOvnKubeNodeConfig(nil, &cliConfig, &config{})
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("ovnkube-node-mgmt-port-netdev must be provided"))
+		})
+
+		It("Fails if management port is not provided and ovnkube node mode is smart-nic-host", func() {
+			cliConfig := config{
+				OvnKubeNode: OvnKubeNodeConfig{
+					Mode: types.NodeModeSmartNICHost,
+				},
+			}
+			err := buildOvnKubeNodeConfig(nil, &cliConfig, &config{})
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("ovnkube-node-mgmt-port-netdev must be provided"))
 		})
 	})
 })

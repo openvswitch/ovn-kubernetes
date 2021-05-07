@@ -3,7 +3,7 @@ module github.com/ovn-org/ovn-kubernetes/go-controller
 go 1.13
 
 require (
-	github.com/Mellanox/sriovnet v1.0.2
+	github.com/Mellanox/sriovnet v1.0.3-0.20210502102041-c1119c4015e9
 	github.com/Microsoft/go-winio v0.4.15 // indirect
 	github.com/Microsoft/hcsshim v0.8.10-0.20200715222032-5eafd1556990
 	github.com/bhendo/go-powershell v0.0.0-20190719160123-219e7fb4e41e

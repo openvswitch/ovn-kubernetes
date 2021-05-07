@@ -49,6 +49,7 @@ fi
 # OVN_NORTHD_OPTS - the options for the ovn northbound db
 # OVN_GATEWAY_MODE - the gateway mode (shared or local) - v3
 # OVN_GATEWAY_OPTS - the options for the ovn gateway
+# OVN_GATEWAY_ROUTER_SUBNET - the gateway router subnet (shared mode, Smart-NIC only) - v3
 # OVNKUBE_LOGLEVEL - log level for ovnkube (0..5, default 4) - v3
 # OVN_LOGLEVEL_NORTHD - log level (ovn-ctl default: -vconsole:emer -vsyslog:err -vfile:info) - v3
 # OVN_LOGLEVEL_NB - log level (ovn-ctl default: -vconsole:off -vfile:info) - v3
@@ -71,6 +72,7 @@ fi
 # OVN_EGRESSFIREWALL_ENABLE - enable egressFirewall for ovn-kubernetes
 # OVN_UNPRIVILEGED_MODE - execute CNI ovs/netns commands from host (default no)
 # OVNKUBE_NODE_MODE - ovnkube node mode of operation, one of: full, smart-nic, smart-nic-host (default: full)
+# OVNKUBE_NODE_MGMT_PORT_NETDEV - ovnkube node management port netdev. valid when ovnkube node mode is: smart-nic, smart-nic-host
 # OVN_ENCAP_IP - encap IP to be used for OVN traffic on the node. mandatory in case ovnkube-node-mode=="smart-nic"
 # OVN_HOST_NETWORK_NAMESPACE - namespace to classify host network traffic for applying network policies
 
@@ -151,6 +153,7 @@ ovnkube_loglevel=${OVNKUBE_LOGLEVEL:-4}
 # two gateway modes that we support using `images/daemonset.sh` tool
 ovn_gateway_mode=${OVN_GATEWAY_MODE:-"shared"}
 ovn_gateway_opts=${OVN_GATEWAY_OPTS:-""}
+ovn_gateway_router_subnet=${OVN_GATEWAY_ROUTER_SUBNET:-""}
 
 net_cidr=${OVN_NET_CIDR:-10.128.0.0/14/23}
 svc_cidr=${OVN_SVC_CIDR:-172.30.0.0/16}
@@ -204,6 +207,8 @@ ovn_ipfix_targets=${OVN_IPFIX_TARGETS:-}
 
 # OVNKUBE_NODE_MODE - is the mode which ovnkube node operates
 ovnkube_node_mode=${OVNKUBE_NODE_MODE:-"full"}
+# OVNKUBE_NODE_mgmt_PORT_NETDEV - is the net device to be used for management port
+ovnkube_node_mgmt_port_netdev=${OVNKUBE_NODE_MGMT_PORT_NETDEV:-}
 # OVN_ENCAP_IP - encap IP to be used for OVN traffic on the node
 ovn_encap_ip=${OVN_ENCAP_IP:-}
 
@@ -493,6 +498,7 @@ display_env() {
   echo OVN_LOGLEVEL_CONTROLLER ${ovn_loglevel_controller}
   echo OVN_GATEWAY_MODE ${ovn_gateway_mode}
   echo OVN_GATEWAY_OPTS ${ovn_gateway_opts}
+  echo OVN_GATEWAY_ROUTER_SUBNET ${ovn_gateway_router_subnet}
   echo OVN_NET_CIDR ${net_cidr}
   echo OVN_SVC_CIDR ${svc_cidr}
   echo OVN_NB_PORT ${ovn_nb_port}
@@ -1063,6 +1069,11 @@ ovn-node() {
     fi
   fi
 
+  ovnkube_node_mgmt_port_netdev_flag=
+  if [[ ${ovnkube_node_mgmt_port_netdev} != "" ]]; then
+    ovnkube_node_mgmt_port_netdev_flag="--ovnkube-node-mgmt-port-netdev=${ovnkube_node_mgmt_port_netdev}"
+  fi
+
   local ovn_node_ssl_opts=""
   if [[ ${ovnkube_node_mode} != "smart-nic-host" ]]; then
       [[ "yes" == ${OVN_SSL_ENABLE} ]] && {
@@ -1102,6 +1113,7 @@ ovn-node() {
     ${hybrid_overlay_flags} \
     ${disable_snat_multiple_gws_flag} \
     --gateway-mode=${ovn_gateway_mode} ${ovn_gateway_opts} \
+    --gateway-router-subnet=${ovn_gateway_router_subnet} \
     --pidfile ${OVN_RUNDIR}/ovnkube.pid \
     --logfile /var/log/ovn-kubernetes/ovnkube.log \
     ${ovn_node_ssl_opts} \
@@ -1114,7 +1126,8 @@ ovn-node() {
     --ovn-metrics-bind-address ${ovn_metrics_bind_address} \
     --metrics-bind-address ${ovnkube_node_metrics_bind_address} \
      ${ovnkube_node_mode_flag} \
-    --host-network-namespace ${ovn_host_network_namespace} &
+    --host-network-namespace ${ovn_host_network_namespace} \
+     ${ovnkube_node_mgmt_port_netdev_flag} &
 
   wait_for_event attempts=3 process_ready ovnkube
   if [[ ${ovnkube_node_mode} != "smart-nic" ]]; then

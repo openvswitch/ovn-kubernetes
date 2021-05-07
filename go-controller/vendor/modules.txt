@@ -1,4 +1,4 @@
-# github.com/Mellanox/sriovnet v1.0.2
+# github.com/Mellanox/sriovnet v1.0.3-0.20210502102041-c1119c4015e9
 github.com/Mellanox/sriovnet
 github.com/Mellanox/sriovnet/pkg/utils/filesystem
 # github.com/Microsoft/go-winio v0.4.15

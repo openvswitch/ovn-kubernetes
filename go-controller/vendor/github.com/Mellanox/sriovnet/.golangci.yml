@@ -32,6 +32,7 @@ linters-settings:
       mnd:
         # don't include the "operation" and "assign"
         checks: argument,case,condition,return
+        ignored-numbers: 2
   govet:
     check-shadowing: true
     settings:
@@ -42,6 +43,9 @@ linters-settings:
     line-length: 120
   misspell:
     locale: US
+    ignore-words:
+      - flavour
+      - flavours
   prealloc:
     # Report preallocation suggestions only on simple loops that have no returns/breaks/continues/gotos in them.
     # True by default.
@@ -79,7 +83,7 @@ linters:
     - nakedret
     - prealloc
     - rowserrcheck
-    - scopelint
+    - exportloopref
     - staticcheck
     - structcheck
     - stylecheck

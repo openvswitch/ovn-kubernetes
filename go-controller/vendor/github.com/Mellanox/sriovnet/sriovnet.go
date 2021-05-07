@@ -396,7 +396,7 @@ func GetVfNetdevName(handle *PfNetdevHandle, vf *VfObj) string {
 // GetVfIndexByPciAddress gets a VF PCI address (e.g '0000:03:00.4') and
 // returns the correlate VF index.
 func GetVfIndexByPciAddress(vfPciAddress string) (int, error) {
-	vfPath := filepath.Join(PciSysDir, vfPciAddress, "physfn/virtfn*")
+	vfPath := filepath.Join(PciSysDir, vfPciAddress, "physfn", "virtfn*")
 	matches, err := filepath.Glob(vfPath)
 	if err != nil {
 		return -1, err

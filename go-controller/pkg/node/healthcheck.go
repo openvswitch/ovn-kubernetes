@@ -94,30 +94,23 @@ func countLocalEndpoints(ep *kapi.Endpoints, nodeName string) int {
 }
 
 // check for OVS internal ports without any ofport assigned, they are stale ports that must be deleted
-func checkForStaleOVSInterfaces(stopChan chan struct{}) {
-	for {
-		select {
-		case <-time.After(60 * time.Second):
-			stdout, _, err := util.RunOVSVsctl("--data=bare", "--no-headings", "--columns=name", "find",
-				"interface", "ofport=-1")
-			if err != nil {
-				klog.Errorf("Failed to list OVS interfaces with ofport set to -1")
-				continue
-			}
-			if len(stdout) == 0 {
-				continue
-			}
-			values := strings.Split(stdout, "\n\n")
-			for _, val := range values {
-				klog.Warningf("Found stale interface %s, so deleting it", val)
-				_, stderr, err := util.RunOVSVsctl("--if-exists", "--with-iface", "del-port", val)
-				if err != nil {
-					klog.Errorf("Failed to delete OVS port/interface %s: stderr: %s (%v)",
-						val, stderr, err)
-				}
-			}
-		case <-stopChan:
-			return
+func checkForStaleOVSInterfaces() {
+	stdout, _, err := util.RunOVSVsctl("--data=bare", "--no-headings", "--columns=name", "find",
+		"interface", "ofport=-1")
+	if err != nil {
+		klog.Errorf("Failed to list OVS interfaces with ofport set to -1")
+		return
+	}
+	if len(stdout) == 0 {
+		return
+	}
+	values := strings.Split(stdout, "\n\n")
+	for _, val := range values {
+		klog.Warningf("Found stale interface %s, so deleting it", val)
+		_, stderr, err := util.RunOVSVsctl("--if-exists", "--with-iface", "del-port", val)
+		if err != nil {
+			klog.Errorf("Failed to delete OVS port/interface %s: stderr: %s (%v)",
+				val, stderr, err)
 		}
 	}
 }

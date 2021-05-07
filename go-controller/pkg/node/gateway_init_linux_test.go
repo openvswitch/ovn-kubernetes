@@ -186,7 +186,7 @@ func shareGatewayInterfaceTest(app *cli.App, testNS ns.NetNS,
 			defer GinkgoRecover()
 
 			gatewayNextHops, gatewayIntf, err := getGatewayNextHops()
-			sharedGw, err := newSharedGateway(nodeName, ovntest.MustParseIPNets(nodeSubnet), gatewayNextHops, gatewayIntf, nodeAnnotator)
+			sharedGw, err := newSharedGateway(nodeName, ovntest.MustParseIPNets(nodeSubnet), gatewayNextHops, gatewayIntf, nil, nodeAnnotator)
 			Expect(err).NotTo(HaveOccurred())
 			err = sharedGw.Init(wf)
 			Expect(err).NotTo(HaveOccurred())

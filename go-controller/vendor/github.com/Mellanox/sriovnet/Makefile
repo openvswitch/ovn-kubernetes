@@ -17,7 +17,7 @@ GOLANGCI_LINT = $(GOBIN)/golangci-lint
 # golangci-lint version should be updated periodically
 # we keep it fixed to avoid it from unexpectedly failing on the project
 # in case of a version bump
-GOLANGCI_LINT_VER = v1.23.8
+GOLANGCI_LINT_VER = v1.39.0
 TIMEOUT = 15
 Q = $(if $(filter 1,$V),,@)
 
