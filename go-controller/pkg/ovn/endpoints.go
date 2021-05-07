@@ -147,6 +147,17 @@ func (ovn *Controller) handleNodePortLB(node *kapi.Node) error {
 	if physicalIPs, _ = ovn.getGatewayPhysicalIPs(gatewayRouter); physicalIPs == nil {
 		return fmt.Errorf("gateway physical IP for node %q does not yet exist", node.Name)
 	}
+	// if new services controller run a full sync on all services
+	// services that have host network endpoints, are nodeport, external IP or ingress all have unique
+	// per-node load balancers. Since we cannot determine which services those are without significant parsing
+	// just sync all services
+	if ovn.svcController != nil {
+		if err := ovn.svcController.RequestFullSync(); err != nil {
+			return err
+		}
+		return nil
+	}
+	// Legacy controller code
 	namespaces, err := ovn.watchFactory.GetNamespaces()
 	if err != nil {
 		return fmt.Errorf("failed to get k8s namespaces: %v", err)
