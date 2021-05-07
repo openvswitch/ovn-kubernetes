@@ -149,6 +149,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 			err := node.addRepPort(&pod, vfRep, ifInfo)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("failed to run ovs command"))
+			Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 		})
 
 		Context("After successfully calling ConfigureOVS", func() {
@@ -200,6 +201,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 
 					err := node.addRepPort(&pod, vfRep, ifInfo)
 					Expect(err).To(HaveOccurred())
+					Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 				})
 
 				It("LinkSetMTU()", func() {
@@ -213,6 +215,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 
 					err := node.addRepPort(&pod, vfRep, ifInfo)
 					Expect(err).To(HaveOccurred())
+					Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 				})
 
 				It("LinkSetUp()", func() {
@@ -227,6 +230,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 
 					err := node.addRepPort(&pod, vfRep, ifInfo)
 					Expect(err).To(HaveOccurred())
+					Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 				})
 			})
 
@@ -239,6 +243,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 
 				err := node.addRepPort(&pod, vfRep, ifInfo)
 				Expect(err).ToNot(HaveOccurred())
+				Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 			})
 
 			It("cleans up representor port if set pod annotation fails", func() {
@@ -255,6 +260,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 
 				err := node.addRepPort(&pod, vfRep, ifInfo)
 				Expect(err).To(HaveOccurred())
+				Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 			})
 		})
 	})
@@ -276,6 +282,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 			})
 			err := node.delRepPort(vfRep)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 		})
 
 		It("Does not fail if LinkByName failed", func() {
@@ -285,6 +292,7 @@ var _ = Describe("Node Smart NIC tests", func() {
 			})
 			err := node.delRepPort(vfRep)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 		})
 
 		It("Does not fail if removal of VF representor from OVS fails once", func() {
@@ -300,8 +308,10 @@ var _ = Describe("Node Smart NIC tests", func() {
 				Cmd: genOVSDelPortCmd("pf0vf9"),
 				Err: nil,
 			})
+			// pass on the second
 			err := node.delRepPort(vfRep)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(execMock.CalledMatchesExpected()).To(BeTrue(), execMock.ErrorDesc())
 		})
 	})
 })
