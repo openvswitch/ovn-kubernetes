@@ -56,11 +56,11 @@ func (r *Repair) runOnce() error {
 	for _, p := range protocols {
 		lbUUID, err := loadbalancer.GetOVNKubeLoadBalancer(p)
 		if err != nil {
-			return errors.Wrapf(err, "Failed to get OVN load balancer for protocol %s", p)
+			return errors.Wrapf(err, "Failed to get Cluster IP OVN load balancer for protocol %s", p)
 		}
 		ovnLBCache[p] = append(ovnLBCache[p], lbUUID)
 	}
-	// NodePort, ExternalIPs and Ingress OVN load balancers
+	// NodePort, ExternalIPs, Ingress OVN load balancers as well as worker load balancers
 	gatewayRouters, _, err := gateway.GetOvnGateways()
 	if err != nil {
 		klog.V(4).Infof("Failed to get gateway routers due to (%v). Skipping repairing OVN GR Load balancers", err)
@@ -70,13 +70,33 @@ func (r *Repair) runOnce() error {
 				lbUUID, err := gateway.GetGatewayLoadBalancer(gatewayRouter, p)
 				if err != nil {
 					if err != gateway.OVNGatewayLBIsEmpty {
-						klog.V(5).Infof("Failed to get OVN GR load balancer for protocol %s, err: %v", p, err)
+						klog.V(5).Infof("Failed to get OVN GR: %s load balancer for protocol %s, err: %v",
+							gatewayRouter, p, err)
+					}
+				} else {
+					ovnLBCache[p] = append(ovnLBCache[p], lbUUID)
+				}
+				workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
+				workerLB, err := loadbalancer.GetWorkerLoadBalancer(workerNode, p)
+				if err != nil {
+					if err != gateway.OVNGatewayLBIsEmpty {
+						klog.V(5).Infof("Failed to get OVN Worker: %s load balancer for protocol %s, err: %v",
+							workerNode, p, err)
 					}
 					continue
 				}
-				ovnLBCache[p] = append(ovnLBCache[p], lbUUID)
+				ovnLBCache[p] = append(ovnLBCache[p], workerLB)
 			}
 		}
+	}
+
+	// Idling load balancers
+	for _, p := range protocols {
+		lb, err := loadbalancer.GetOVNKubeIdlingLoadBalancer(p)
+		if err != nil {
+			return errors.Wrapf(err, "Failed to get Idling OVN load balancer for protocol %s", p)
+		}
+		ovnLBCache[p] = append(ovnLBCache[p], lb)
 	}
 
 	// Get Kubernetes Service state

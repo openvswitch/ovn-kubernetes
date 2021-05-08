@@ -45,7 +45,7 @@ func Test_serviceTracker_updateService(t *testing.T) {
 
 	st := newServiceTracker()
 	for _, tt := range tests {
-		st.updateService(tt.name, tt.namespace, tt.vip, tt.proto)
+		st.updateService(tt.name, tt.namespace, tt.vip, tt.proto, "")
 		if !st.hasService(tt.name, tt.namespace) {
 			t.Fatalf("Error: service %s %s not updated", tt.name, tt.namespace)
 		}

@@ -15,12 +15,18 @@ import (
 )
 
 const (
-	tcpLBUUID    string = "1a3dfc82-2749-4931-9190-c30e7c0ecea3"
-	udpLBUUID    string = "6d3142fc-53e8-4ac1-88e6-46094a5a9957"
-	sctpLBUUID   string = "0514c521-a120-4756-aec6-883fe5db7139"
-	grTcpLBUUID  string = "001c2ec6-2f32-11eb-9bc2-a8a1590cda29"
-	grUdpLBUUID  string = "05c55ae6-2f32-11eb-822e-a8a1590cda29"
-	grSctpLBUUID string = "0ac92874-2f32-11eb-8ca0-a8a1590cda29"
+	tcpLBUUID        string = "1a3dfc82-2749-4931-9190-c30e7c0ecea3"
+	udpLBUUID        string = "6d3142fc-53e8-4ac1-88e6-46094a5a9957"
+	sctpLBUUID       string = "0514c521-a120-4756-aec6-883fe5db7139"
+	grTcpLBUUID      string = "001c2ec6-2f32-11eb-9bc2-a8a1590cda29"
+	grUdpLBUUID      string = "05c55ae6-2f32-11eb-822e-a8a1590cda29"
+	grSctpLBUUID     string = "0ac92874-2f32-11eb-8ca0-a8a1590cda29"
+	workerTCPLBUUID  string = "2095292c-adb4-11eb-8529-0242ac130003"
+	workerUDPLBUUID  string = "2b662964-adb4-11eb-8529-0242ac130003"
+	workerSCTPLBUUID string = "50738e40-adb4-11eb-8529-0242ac130003"
+	idlingTCPLB      string = "a64d5efe-adb4-11eb-8529-0242ac130003"
+	idlingUDPLB      string = "bd58fa04-adb4-11eb-8529-0242ac130003"
+	idlingSCTPLB     string = "c90b1940-adb4-11eb-8529-0242ac130003"
 )
 
 func newServiceInformer() coreinformers.ServiceInformer {
@@ -48,6 +54,14 @@ func TestRepair_Empty(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerSCTPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingSCTPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + tcpLBUUID + " vips",
 		Output: "",
 	})
@@ -56,11 +70,27 @@ func TestRepair_Empty(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerTCPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingTCPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + udpLBUUID + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + grUdpLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerUDPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingUDPLB + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -96,6 +126,14 @@ func TestRepair_OVNStaleData(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerSCTPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingSCTPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + tcpLBUUID + " vips",
 		Output: "",
 	})
@@ -104,11 +142,27 @@ func TestRepair_OVNStaleData(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerTCPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingTCPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + udpLBUUID + " vips",
 		Output: `{"10.96.0.10:53"="10.244.2.3:53,10.244.2.5:53", "10.96.0.10:9153"="10.244.2.3:9153,10.244.2.5:9153", "10.96.0.1:443"="172.19.0.3:6443"}`,
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + grUdpLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerUDPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingUDPLB + " vips",
 		Output: "",
 	})
 	// The repair loop must delete the remaining entries in OVN
@@ -165,6 +219,14 @@ func TestRepair_OVNSynced(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerSCTPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingSCTPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + tcpLBUUID + " vips",
 		Output: `{"10.96.0.10:80"="10.0.0.2:3456,10.0.0.3:3456", "[fd00:10:96::1]:80"="[2001:db8::1]:3456,[2001:db8::2]:3456"}`,
 	})
@@ -173,11 +235,27 @@ func TestRepair_OVNSynced(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerTCPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingTCPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + udpLBUUID + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + grUdpLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerUDPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingUDPLB + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -219,6 +297,14 @@ func TestRepair_OVNMissingService(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerSCTPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingSCTPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + tcpLBUUID + " vips",
 		Output: `{"10.96.0.10:80"="10.0.0.2:3456,10.0.0.3:3456"}`,
 	})
@@ -227,11 +313,27 @@ func TestRepair_OVNMissingService(t *testing.T) {
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerTCPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingTCPLB + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + udpLBUUID + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + grUdpLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + workerUDPLBUUID + " vips",
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading get load_balancer " + idlingUDPLB + " vips",
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
@@ -273,12 +375,36 @@ func initializeClusterIPLBs(fexec *ovntest.FakeExec) {
 		Output: grSctpLBUUID,
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-sctp=gateway1",
+		Output: workerSCTPLBUUID,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=gateway1",
 		Output: grTcpLBUUID,
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-tcp=gateway1",
+		Output: workerTCPLBUUID,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:UDP_lb_gateway_router=gateway1",
 		Output: grUdpLBUUID,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-udp=gateway1",
+		Output: workerUDPLBUUID,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-idling-lb-sctp=yes",
+		Output: idlingSCTPLB,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-idling-lb-tcp=yes",
+		Output: idlingTCPLB,
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-idling-lb-udp=yes",
+		Output: idlingUDPLB,
 	})
 }
 

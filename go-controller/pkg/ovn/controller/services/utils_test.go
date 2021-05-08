@@ -31,14 +31,9 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 		{
 			name: "empty",
 			args: args{
-				vips: sets.NewString(),
-				svc:  &v1.Service{},
-				ovnCmd: []ovntest.ExpectedCmd{
-					{
-						Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=name find logical_router options:chassis!=null",
-						Output: gatewayRouter1,
-					},
-				},
+				vips:   sets.NewString(),
+				svc:    &v1.Service{},
+				ovnCmd: []ovntest.ExpectedCmd{},
 			},
 			wantErr: false,
 		},
@@ -70,10 +65,6 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 						Output: loadbalancerTCP,
 					},
 					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "10.0.0.1:80"`,
-						Output: "",
-					},
-					{
 						Cmd:    "ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=2e290f10-3652-11eb-839b-a8a1590cda29",
 						Output: "loadbalancer1",
 					},
@@ -82,11 +73,9 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 						Output: "workerlb",
 					},
 					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer loadbalancer1 vips "10.0.0.1:80"`,
-						Output: "",
-					},
-					{
-						Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer workerlb vips "10.0.0.1:80"`,
+						Cmd: `ovn-nbctl --timeout=15 --if-exists remove load_balancer a08ea426-2288-11eb-a30b-a8a1590cda29 vips "10.0.0.1:80"` +
+							` -- --if-exists remove load_balancer loadbalancer1 vips "10.0.0.1:80"` +
+							` -- --if-exists remove load_balancer workerlb vips "10.0.0.1:80"`,
 						Output: "",
 					},
 					{
@@ -106,7 +95,7 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := newServiceTracker()
 			if len(tt.args.svc.Spec.ClusterIP) > 0 {
-				st.updateKubernetesService(tt.args.svc)
+				st.updateKubernetesService(tt.args.svc, "")
 			}
 			// Expected OVN commands
 			fexec := ovntest.NewFakeExec()
@@ -121,7 +110,6 @@ func Test_deleteVIPsFromOVN(t *testing.T) {
 			if err := deleteVIPsFromAllOVNBalancers(tt.args.vips, tt.args.svc.Name, tt.args.svc.Namespace); (err != nil) != tt.wantErr {
 				t.Errorf("deleteVIPsFromOVN() error = %v, wantErr %v", err, tt.wantErr)
 			}
-
 			if !fexec.CalledMatchesExpected() {
 				t.Error(fexec.ErrorDesc())
 			}
