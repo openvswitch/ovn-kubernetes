@@ -268,7 +268,6 @@ func (c *Controller) syncServices(key string) error {
 	// ,that has the reject option for backends without endpoints, to the idling loadbalancer, that
 	// generates a needPods event.
 	// if not, we delete the vips from the idling lb and move them to their right place.
-
 	vips := collectServiceVIPs(service)
 	if svcNeedsIdling(service.Annotations) && !util.HasValidEndpoint(service, endpointSlices) {
 		err = c.addServiceToIdlingBalancer(vips, service)
@@ -296,6 +295,8 @@ func (c *Controller) syncServices(key string) error {
 		return err
 	}
 
+	// Find out if ExternalTrafficPolicy=Local for Service
+	isPolicyLocal := util.ServiceExternalTrafficPolicyLocal(service)
 	// Iterate over the ClusterIPs and Ports fields to create the corresponding OVN loadbalancers
 	for _, ip := range util.GetClusterIPs(service) {
 		family := v1.IPv4Protocol
@@ -313,13 +314,14 @@ func (c *Controller) syncServices(key string) error {
 			// create the vip = ClusterIP:Port
 			vip := util.JoinHostPortInt32(ip, svcPort.Port)
 			klog.V(4).Infof("Updating service %s/%s with VIP %s %s", name, namespace, vip, svcPort.Protocol)
-			// get the endpoints associated to the vip
+			// get the endpoints associated to the vip, which are the same for each node
 			eps := util.GetLbEndpoints(endpointSlices, svcPort, family)
-			// Reconcile OVN, update the load balancer with current endpoints
+			targetIPs := eps.IPs()
 
+			// Reconcile OVN, update the load balancer with current endpoints
 			// If any of the lbEps contain the a host IP we add to worker/GR LB separately, and not to cluster LB
-			if hasHostEndpoints(eps.IPs) && config.Gateway.Mode == config.GatewayModeShared {
-				if err := createPerNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port, eps.IPs, eps.Port); err != nil {
+			if hasHostEndpoints(targetIPs) && config.Gateway.Mode == config.GatewayModeShared {
+				if err := createPerNodeVIPs([]string{ip}, svcPort.Protocol, svcPort.Port, eps, eps.Port, false); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
 					return err
@@ -331,7 +333,7 @@ func (c *Controller) syncServices(key string) error {
 					return err
 				}
 			} else {
-				if err = loadbalancer.CreateLoadBalancerVIPs(clusterLB, []string{ip}, svcPort.Port, eps.IPs, eps.Port); err != nil {
+				if err = loadbalancer.CreateLoadBalancerVIPs(clusterLB, []string{ip}, svcPort.Port, targetIPs, eps.Port); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v", name, namespace, err)
 					return err
@@ -350,8 +352,8 @@ func (c *Controller) syncServices(key string) error {
 
 			// Node Port
 			if svcPort.NodePort != 0 {
-				if err := createPerNodePhysicalVIPs(utilnet.IsIPv6String(ip), svcPort.Protocol, svcPort.NodePort,
-					eps.IPs, eps.Port); err != nil {
+				// Ensure we only add correct eps to VIP per node
+				if err := createPerNodePhysicalVIPs(utilnet.IsIPv6String(ip), svcPort.Protocol, svcPort.NodePort, eps, eps.Port, isPolicyLocal); err != nil {
 					c.eventRecorder.Eventf(service, v1.EventTypeWarning, "FailedToUpdateOVNLoadBalancer",
 						"Error trying to update OVN LoadBalancer for Service %s/%s: %v",
 						name, namespace, err)
@@ -389,7 +391,7 @@ func (c *Controller) syncServices(key string) error {
 
 			// reconcile external IPs
 			if len(externalIPs) > 0 {
-				if err := createPerNodeVIPs(externalIPs, svcPort.Protocol, svcPort.Port, eps.IPs, eps.Port); err != nil {
+				if err := createPerNodeVIPs(externalIPs, svcPort.Protocol, svcPort.Port, eps, eps.Port, isPolicyLocal); err != nil {
 					klog.Errorf("Error in creating ExternalIP/IngressIP for svc %s, target port: %d - %v\n", name, eps.Port, err)
 				}
 				for _, extIP := range externalIPs {

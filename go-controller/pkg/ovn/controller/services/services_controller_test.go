@@ -7,6 +7,7 @@ import (
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	ovntest "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/testing"
+	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	v1 "k8s.io/api/core/v1"
@@ -534,11 +535,19 @@ func TestUpdateServicePorts(t *testing.T) {
 		Output: "load_balancer_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    fmt.Sprintf("ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:TCP_lb_gateway_router=%s", gatewayRouter1+types.GWRouterLocalLBPostfix),
+		Output: "local_load_balancer_1",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    fmt.Sprintf("ovn-nbctl --timeout=15 --data=bare --no-heading --columns=_uuid find load_balancer external_ids:k8s-worker-lb-tcp=2e290f10-3652-11eb-839b-a8a1590cda29"),
 		Output: "node_load_balancer_1",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
 		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer load_balancer_1 vips "192.168.1.1:80"`,
+		Output: "",
+	})
+	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
+		Cmd:    `ovn-nbctl --timeout=15 --if-exists remove load_balancer local_load_balancer_1 vips "192.168.1.1:80"`,
 		Output: "",
 	})
 	fexec.AddFakeCmd(&ovntest.ExpectedCmd{
