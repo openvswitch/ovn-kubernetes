@@ -196,7 +196,8 @@ func ensureClusterRaftMembership(db string, kclient kube.Interface) {
 	dbPods, err := kclient.GetPods(config.Kubernetes.OVNConfigNamespace,
 		metav1.LabelSelector{
 			MatchLabels: dbAppLabel,
-		})
+		},
+		"")
 	if err != nil {
 		klog.Warningf("Unable to get db pod list from kubeclient: %v", err)
 		return

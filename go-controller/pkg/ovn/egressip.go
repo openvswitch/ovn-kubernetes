@@ -269,7 +269,7 @@ func (oc *Controller) deleteNamespaceEgressIP(eIP *egressipv1.EgressIP, namespac
 }
 
 func (oc *Controller) deleteNamespacePodsEgressIP(eIP *egressipv1.EgressIP, namespace *kapi.Namespace) error {
-	pods, err := oc.kube.GetPods(namespace.Name, eIP.Spec.PodSelector)
+	pods, err := oc.kube.GetPods(namespace.Name, eIP.Spec.PodSelector, "")
 	if err != nil {
 		return err
 	}
