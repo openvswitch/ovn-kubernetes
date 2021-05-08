@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -465,9 +466,9 @@ var _ = ginkgo.Describe("e2e control plane", func() {
 // Test pod connectivity to other host IP addresses
 var _ = ginkgo.Describe("test e2e pod connectivity to host addresses", func() {
 	const (
-		ovnWorkerNode    string = "ovn-worker"
-		targetIP         string = "123.123.123.123"
-		svcname          string = "node-e2e-to-host"
+		ovnWorkerNode string = "ovn-worker"
+		targetIP      string = "123.123.123.123"
+		svcname       string = "node-e2e-to-host"
 	)
 
 	f := framework.NewDefaultFramework(svcname)
@@ -2272,83 +2273,96 @@ func getNodePodCIDR(nodeName string) (string, error) {
 
 var _ = ginkgo.Describe("e2e delete databases", func() {
 	const (
-		svcname                   string        = "delete-db"
-		ovnNs                     string        = "ovn-kubernetes"
-		databasePodPrefix         string        = "ovnkube-db"
-		databasePodNorthContainer string        = "nb-ovsdb"
-		northDBFileName           string        = "ovnnb_db.db"
-		southDBFileName           string        = "ovnsb_db.db"
-		dirDB                     string        = "/etc/ovn/"
-		waitingPeriod             time.Duration = 180 * time.Second // polling timeout
-		ovnWorkerNode             string        = "ovn-worker"
-		ovnWorkerNode2            string        = "ovn-worker2"
-		haModeMinDb               int           = 0
-		haModeMaxDb               int           = 2
+		svcname                   string = "delete-db"
+		ovnNs                     string = "ovn-kubernetes"
+		databasePodPrefix         string = "ovnkube-db"
+		databasePodNorthContainer string = "nb-ovsdb"
+		northDBFileName           string = "ovnnb_db.db"
+		southDBFileName           string = "ovnsb_db.db"
+		dirDB                     string = "/etc/ovn"
+		ovnWorkerNode             string = "ovn-worker"
+		ovnWorkerNode2            string = "ovn-worker2"
+		haModeMinDb               int    = 0
+		haModeMaxDb               int    = 2
 	)
 	var (
-		containerToDeleteFrom = databasePodNorthContainer
+		allDBFiles = []string{path.Join(dirDB, northDBFileName), path.Join(dirDB, southDBFileName)}
 	)
 	f := framework.NewDefaultFramework(svcname)
 
+	// WaitForPodConditionAllowNotFoundError is a wrapper for WaitForPodCondition that allows at most 6 times for the pod not to be found.
+	WaitForPodConditionAllowNotFoundErrors := func(f *framework.Framework, ns, podName, desc string, timeout time.Duration, condition podCondition) error {
+		max_tries := 6               // 6 tries to waiting for the pod to restart
+		cooldown := 10 * time.Second // 10 sec to cooldown between each try
+		for i := 0; i < max_tries; i++ {
+			err := e2epod.WaitForPodCondition(f.ClientSet, ns, podName, desc, 5*time.Minute, condition)
+			if apierrors.IsNotFound(err) {
+				// pod not found,try again after cooldown
+				time.Sleep(cooldown)
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+		return fmt.Errorf("Gave up after waiting %v for pod %q to be %q: pod is not found", timeout, podName, desc)
+	}
+
+	// waitForPodToFinishFullRestart waits for a the pod to finish it's reset cycle and returns.
+	waitForPodToFinishFullRestart := func(f *framework.Framework, pod *v1.Pod) {
+		err := e2epod.WaitForPodCondition(f.ClientSet, pod.Namespace, pod.Name, "not ready", 5*time.Minute, testutils.PodNotReady)
+		if err != nil {
+			framework.Failf("pod %v is not arrived to not-ready state: %v", pod.Name, err)
+		}
+		// during this stage on the restarting process we can encounter "pod not found" errors.
+		// this type of errors is valid because the pod is during restart so it will have a period that it will not be available.
+		// so we will use "WaitForPodConditionAllowNotFoundErrors" in order to handle properly those errors.
+		err = WaitForPodConditionAllowNotFoundErrors(f, pod.Namespace, pod.Name, "running and ready", 5*time.Minute, testutils.PodRunningReady)
+		if err != nil {
+			framework.Failf("pod %v is not arrived to running and ready state: %v", pod.Name, err)
+		}
+		return
+	}
 	deletePod := func(f *framework.Framework, namespace string, podName string) {
 		podClient := f.ClientSet.CoreV1().Pods(namespace)
 		err := podClient.Delete(context.Background(), podName, metav1.DeleteOptions{})
-		framework.ExpectNoError(err, "should delete ovnkube-node pod")
+		framework.ExpectNoError(err, "failed to delete ovnkube-node pod")
 	}
 
-	deleteAndRestartDB := func(db_pod_num int, DBFileNamesToDelete []string, containerToDeleteFrom string) {
-		var (
-			containerFlag = fmt.Sprintf("-c=%s", containerToDeleteFrom)
-			db_pod_name   = fmt.Sprintf("%s-%d", databasePodPrefix, db_pod_num)
-			errStr        string
-		)
-		checkDbFilesExistence := func(db_pod_num int) {
-			out, _ := framework.RunKubectl(ovnNs, "exec", db_pod_name, containerFlag, "--", "ls", dirDB)
-			out = strings.TrimSuffix(strings.ReplaceAll(out, "\n", ","), ",")
-			framework.Logf("current db files:%s", out)
-			ginkgo.By("current db files:" + out)
-			errStr = ""
-			if !strings.Contains(out, northDBFileName) {
-				errStr += " " + northDBFileName
-			}
-			if !strings.Contains(out, southDBFileName) {
-				errStr += " " + southDBFileName
-			}
-			if errStr != "" {
-				errStr = "missing db:" + errStr
-				framework.Failf(errStr)
-			}
+	fileExistsOnPod := func(f *framework.Framework, namespace string, pod *v1.Pod, file string) bool {
+		containerFlag := fmt.Sprintf("-c=%s", pod.Spec.Containers[0].Name)
+		_, err := framework.RunKubectl(ovnNs, "exec", pod.Name, containerFlag, "--", "ls", file)
+		if err == nil{
+				return true
 		}
-		checkDbFilesExistence(db_pod_num)
-		//delete db file(s)
-		for _, DBFileNameToDelete := range DBFileNamesToDelete {
-			framework.Logf("deleting db file %s", DBFileNameToDelete)
-			framework.RunKubectl(ovnNs, "exec", db_pod_name, containerFlag, "--", "rm", dirDB+DBFileNameToDelete)
-			//check db files- make sure its deleted
-			out, _ := framework.RunKubectl(ovnNs, "exec", db_pod_name, containerFlag, "--", "ls", dirDB)
-			out = strings.TrimSuffix(strings.ReplaceAll(out, "\n", ","), ",")
-			if out == "" {
-				framework.Logf("all db files deleted")
-			} else {
-				framework.Logf("cur db files:%s", out)
-			}
-			if strings.Contains(out, DBFileNameToDelete) {
-				errStr = "db not deleted:" + DBFileNameToDelete
-				framework.Failf(errStr)
-			}
+		if strings.Contains(err.Error(), fmt.Sprintf("ls: cannot access '%s': No such file or directory",file)) {
+			return false
 		}
-
-		//delete the db-pod in order to emulate the cluster/pod restart
-		framework.Logf("deleting db pod:%s", db_pod_name)
-		deletePod(f, ovnNs, db_pod_name)
-
-		//wait (let the new db pod to be ready)
-		framework.Logf("wait %v", waitingPeriod)
-		time.Sleep(waitingPeriod)
-
-		//check db files existence
-		checkDbFilesExistence(db_pod_num)
+		framework.Failf("failed to check if file %s exists on pod: %s, err: %v", file, pod.Name, err)
+		return false
 	}
+
+	allFilesExistsOnPod := func(f *framework.Framework, namespace string, pod *v1.Pod, files []string) bool {
+		for _, file := range files {
+			if !fileExistsOnPod(f, namespace, pod, file) {
+				framework.Logf("file %s not exists", file)
+				return false
+			}
+			framework.Logf("file %s exists", file)
+		}
+		return true
+	}
+
+	deleteFileFromPod := func(f *framework.Framework, namespace string, pod *v1.Pod, file string) {
+		containerFlag := fmt.Sprintf("-c=%s", pod.Spec.Containers[0].Name)
+		framework.RunKubectl(ovnNs, "exec", pod.Name, containerFlag, "--", "rm", file)
+		if fileExistsOnPod(f, namespace, pod, file) {
+			framework.Failf("Error: failed to delete file %s", file)
+		}
+		framework.Logf("file %s deleted ", file)
+	}
+
 	singlePodConnectivityTest := func(f *framework.Framework, podName string) {
 		framework.Logf("Running container which tries to connect to API server in a loop")
 		podChan, errChan := make(chan *v1.Pod), make(chan error)
@@ -2406,46 +2420,19 @@ var _ = ginkgo.Describe("e2e delete databases", func() {
 		errChan <- nil
 	}
 
-	// WaitForPodConditionAllowNotFoundError is a wrapper for WaitForPodCondition that allows at most 6 times for the pod not to be found.
-	WaitForPodConditionAllowNotFoundErrors := func(f *framework.Framework, ns, podName, desc string, timeout time.Duration, condition podCondition) error {
-		max_tries := 6               // 6 tries to waiting for the pod to restart
-		cooldown := 10 * time.Second // 10 sec to cooldown between each try
-		for i := 0; i < max_tries; i++ {
-			err := e2epod.WaitForPodCondition(f.ClientSet, ns, podName, desc, 5*time.Minute, condition)
-			if apierrors.IsNotFound(err) {
-				// pod not found,try again after cooldown
-				time.Sleep(cooldown)
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-		return fmt.Errorf("Gave up after waiting %v for pod %q to be %q: pod is not found", timeout, podName, desc)
-	}
-
-	// waitForPodToFinishFullRestart waits for a the pod to finish it's reset cycle and returns.
-	waitForPodToFinishFullRestart := func(f *framework.Framework, pod *v1.Pod) {
-		err := e2epod.WaitForPodCondition(f.ClientSet, pod.Namespace, pod.Name, "not ready", 5*time.Minute, testutils.PodNotReady)
-		if err != nil {
-			framework.Failf("pod %v is not arrived to not-ready state: %v", pod.Name, err)
-		}
-		// during this stage on the restarting process we can encounter "pod not found" errors.
-		// this type of errors is valid because the pod is during restart so it will have a period that it will not be available.
-		// so we will use "WaitForPodConditionAllowNotFoundErrors" in order to handle properly those errors.
-		err = WaitForPodConditionAllowNotFoundErrors(f, pod.Namespace, pod.Name, "running and ready", 5*time.Minute, testutils.PodRunningReady)
-		if err != nil {
-			framework.Failf("pod %v is not arrived to running and ready state: %v", pod.Name, err)
-		}
-		return
-	}
-
 	table.DescribeTable("recovering from deleting db files while maintain connectivity",
 		func(db_pod_num int, DBFileNamesToDelete []string) {
+			var (
+				db_pod_name = fmt.Sprintf("%s-%d", databasePodPrefix, db_pod_num)
+			)
 			if db_pod_num < haModeMinDb || db_pod_num > haModeMaxDb {
 				framework.Failf("invalid db_pod_num.")
 				return
+			}
+
+			// Adding db file path
+			for i, file := range DBFileNamesToDelete {
+				DBFileNamesToDelete[i] = path.Join(dirDB, file)
 			}
 
 			framework.Logf("connectivity test before deleting db files")
@@ -2454,34 +2441,63 @@ var _ = ginkgo.Describe("e2e delete databases", func() {
 			framework.Logf("setup two pods for continues connectivity test ")
 			syncChan, errChan := make(chan string), make(chan error)
 			go twoPodsContinuousConnectivityTest(f, ovnWorkerNode, ovnWorkerNode2, syncChan, errChan)
-			//wait for the connectivity test pods to be ready
+			// Wait for the connectivity test pods to be ready
 			framework.Logf(<-syncChan + "delete and restart db pods.")
-			//start the db disruption - delete the db files and delete the db-pod in order to emulate the cluster/pod restart
-			deleteAndRestartDB(db_pod_num, DBFileNamesToDelete, containerToDeleteFrom)
-			time.Sleep(10 * time.Second)
-			syncChan <- "db disruption over."
+
+			// Start the db disruption - delete the db files and delete the db-pod in order to emulate the cluster/pod restart
+
+			// Retrive the DB pod
+			dbPod, err := f.ClientSet.CoreV1().Pods(ovnNs).Get(context.Background(), db_pod_name, metav1.GetOptions{})
+			framework.ExpectNoError(err, fmt.Sprintf("unable to get pod: %s, err: %v", db_pod_name, err))
+
+			// Check that all files exists on pod
+			framework.Logf("make sure that all the db files are exists on the db pod:%s", dbPod.Name)
+			if !allFilesExistsOnPod(f, ovnNs, dbPod, allDBFiles) {
+				framework.Failf("Error: db files not found")
+			}
+			// Delete the db files from the db-pod
+			framework.Logf("deleting db files from db pod")
+			for _, db_file := range DBFileNamesToDelete {
+				deleteFileFromPod(f, ovnNs, dbPod, db_file)
+			}
+			// Delete the db-pod in order to emulate the cluster/pod restart
+			framework.Logf("deleting db pod:%s", dbPod.Name)
+			deletePod(f, ovnNs, dbPod.Name)
+
+			framework.Logf("wait for db pod to finish full restart")
+			waitForPodToFinishFullRestart(f, dbPod)
+
+			// Check db files existence
+			// Check that all files exists on pod
+			framework.Logf("make sure that all the db files are exists on the db pod:%s", dbPod.Name)
+			if !allFilesExistsOnPod(f, ovnNs, dbPod, allDBFiles) {
+				framework.Failf("Error: db files not found")
+			}
+
+			// disruption over.
+			syncChan <- "disruption over."
 			framework.ExpectNoError(<-errChan)
 
 			framework.Logf("test simple connectivity from new pod to API server,after recovery")
 			singlePodConnectivityTest(f, "after-delete-db-files")
 		},
 
-		//one can choose to delete only specific db file (uncomment the requested lines)
+		// One can choose to delete only specific db file (uncomment the requested lines)
 
-		//db pod 0
+		// db pod 0
 		table.Entry("when delete both db files on ovnkube-db-0", 0, []string{northDBFileName, southDBFileName}),
-		//table.Entry("when delete north db on ovnkube-db-0", 0, []string{northDBFileName}),
-		//table.Entry("when delete south db on ovnkube-db-0", 0, []string{southDBFileName}),
+		// table.Entry("when delete north db on ovnkube-db-0", 0, []string{northDBFileName}),
+		// table.Entry("when delete south db on ovnkube-db-0", 0, []string{southDBFileName}),
 
-		//db pod 1
+		// db pod 1
 		table.Entry("when delete both db files on ovnkube-db-1", 1, []string{northDBFileName, southDBFileName}),
-		//table.Entry("when delete north db on ovnkube-db-1", 1, []string{northDBFileName}),
-		//table.Entry("when delete south db on ovnkube-db-1", 1, []string{southDBFileName}),
+		// table.Entry("when delete north db on ovnkube-db-1", 1, []string{northDBFileName}),
+		// table.Entry("when delete south db on ovnkube-db-1", 1, []string{southDBFileName}),
 
-		//db pod 2
+		// db pod 2
 		table.Entry("when delete both db files on ovnkube-db-2", 2, []string{northDBFileName, southDBFileName}),
-		//table.Entry("when delete north db on ovnkube-db-2", 2, []string{northDBFileName}),
-		//table.Entry("when delete south db on ovnkube-db-2", 2, []string{southDBFileName}),
+		// table.Entry("when delete north db on ovnkube-db-2", 2, []string{northDBFileName}),
+		// table.Entry("when delete south db on ovnkube-db-2", 2, []string{southDBFileName}),
 	)
 
 	ginkgo.It("Should validate connectivity before and after deleting all the db-pods at once", func() {
@@ -2500,7 +2516,7 @@ var _ = ginkgo.Describe("e2e delete databases", func() {
 		for _, dbPod := range dbPods {
 			dbPodName := dbPod.Name
 			framework.Logf("deleting db pod: %v", dbPodName)
-			//delete the db-pod in order to emulate the pod restart
+			// Delete the db-pod in order to emulate the pod restart
 			dbPod.Status.Message = "check"
 			deletePod(f, ovnNs, dbPodName)
 		}
