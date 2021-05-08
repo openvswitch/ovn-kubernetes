@@ -2,10 +2,9 @@ package ovn
 
 import (
 	"context"
+	"github.com/urfave/cli/v2"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"net"
-
-	"github.com/urfave/cli/v2"
 
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	egressfirewallfake "github.com/ovn-org/ovn-kubernetes/go-controller/pkg/crd/egressfirewall/v1/apis/clientset/versioned/fake"
@@ -268,6 +267,8 @@ var _ = ginkgo.Describe("OVN Namespace Operations", func() {
 
 				fakeOvn.controller.WatchNamespaces()
 				fakeOvn.asf.EventuallyExpectEmptyAddressSet(hostNetworkNamespace)
+
+				fakeOvn.controller.StartServiceController(fakeOvn.wg, false)
 
 				fakeOvn.controller.WatchNodes()
 

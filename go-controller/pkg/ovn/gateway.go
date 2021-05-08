@@ -4,19 +4,13 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/config"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/gateway"
-	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/ovn/loadbalancer"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/types"
 	"github.com/ovn-org/ovn-kubernetes/go-controller/pkg/util"
 
 	kapi "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 )
-
-func (ovn *Controller) getOvnGateways() ([]string, string, error) {
-	return gateway.GetOvnGateways()
-}
 
 func (ovn *Controller) getGatewayPhysicalIPs(gatewayRouter string) ([]string, error) {
 	return gateway.GetGatewayPhysicalIPs(gatewayRouter)
@@ -29,177 +23,6 @@ func (ovn *Controller) getGatewayLoadBalancer(gatewayRouter string, protocol kap
 // getGatewayLoadBalancers find TCP, SCTP, UDP load-balancers from gateway router.
 func getGatewayLoadBalancers(gatewayRouter string) (string, string, string, error) {
 	return gateway.GetGatewayLoadBalancers(gatewayRouter)
-}
-
-// createPerNodeVIPs adds load balancers on a per node basis for GR and worker switch LBs
-// if empty svcIP is provided, then the physical IPs will be used for the node
-func (ovn *Controller) createPerNodeVIPs(svcIPs []string, protocol kapi.Protocol, sourcePort int32, targetIPs []string, targetPort int32) error {
-	klog.V(5).Infof("Creating Node VIPs - %s, %d, [%v], %d", protocol, sourcePort, targetIPs, targetPort)
-	// Each gateway has a separate load-balancer for N/S traffic
-	gatewayRouters, _, err := ovn.getOvnGateways()
-	if err != nil {
-		return err
-	}
-
-	for _, gatewayRouter := range gatewayRouters {
-		gatewayLB, err := ovn.getGatewayLoadBalancer(gatewayRouter, protocol)
-		if err != nil {
-			klog.Errorf("Gateway router %s does not have load balancer (%v)",
-				gatewayRouter, err)
-			continue
-		}
-		physicalIPs, err := ovn.getGatewayPhysicalIPs(gatewayRouter)
-		if err != nil {
-			klog.Errorf("Gateway router %s does not have physical ip (%v)", gatewayRouter, err)
-			continue
-		}
-
-		vips := physicalIPs
-		if len(svcIPs) > 0 {
-			vips = svcIPs
-		}
-		// If self ip is in target list, we need to use special IP to allow hairpin back to host
-		newTargets := util.UpdateIPsSlice(targetIPs, physicalIPs, []string{types.V4HostMasqueradeIP, types.V6HostMasqueradeIP})
-
-		// With the physical_ip:sourcePort as the VIP, add an entry in
-		// 'load_balancer'.
-		err = ovn.createLoadBalancerVIPs(gatewayLB, vips, sourcePort, newTargets, targetPort)
-		if err != nil {
-			klog.Errorf("Failed to create VIP in load balancer %s - %v", gatewayLB, err)
-			continue
-		}
-
-		if config.Gateway.Mode == config.GatewayModeShared {
-			workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
-			workerLB, err := loadbalancer.GetWorkerLoadBalancer(workerNode, protocol)
-			if err != nil {
-				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
-				continue
-			}
-			err = ovn.createLoadBalancerVIPs(workerLB, vips, sourcePort, targetIPs, targetPort)
-			if err != nil {
-				klog.Errorf("Failed to create VIP in load balancer %s - %v", workerLB, err)
-				continue
-			}
-		}
-	}
-	return nil
-}
-
-// deleteNodeVIPs removes load balancers on a per node basis for GR and worker switch LBs
-// if empty svcIP is provided, then the physical IPs will be used for the node
-func (ovn *Controller) deleteNodeVIPs(svcIPs []string, protocol kapi.Protocol, sourcePort int32) {
-	klog.V(5).Infof("Searching to remove Gateway VIPs - %s, %d", protocol, sourcePort)
-	gatewayRouters, _, err := ovn.getOvnGateways()
-	if err != nil {
-		klog.Errorf("Error while searching for gateways: %v", err)
-		return
-	}
-
-	for _, gatewayRouter := range gatewayRouters {
-		var loadBalancers []string
-		gatewayLB, err := ovn.getGatewayLoadBalancer(gatewayRouter, protocol)
-		if err != nil {
-			klog.Errorf("Gateway router %s does not have load balancer (%v)", gatewayRouter, err)
-			continue
-		}
-		physicalIPs := svcIPs
-		if len(physicalIPs) == 0 {
-			physicalIPs, err = ovn.getGatewayPhysicalIPs(gatewayRouter)
-			if err != nil {
-				klog.Errorf("Gateway router %s does not have physical ip (%v)", gatewayRouter, err)
-				continue
-			}
-		}
-		loadBalancers = append(loadBalancers, gatewayLB)
-		if config.Gateway.Mode == config.GatewayModeShared {
-			workerNode := util.GetWorkerFromGatewayRouter(gatewayRouter)
-			workerLB, err := loadbalancer.GetWorkerLoadBalancer(workerNode, protocol)
-			if err != nil {
-				klog.Errorf("Worker switch %s does not have load balancer (%v)", workerNode, err)
-				continue
-			}
-			loadBalancers = append(loadBalancers, workerLB)
-		}
-		for _, loadBalancer := range loadBalancers {
-			for _, physicalIP := range physicalIPs {
-				// With the physical_ip:sourcePort as the VIP, delete an entry in 'load_balancer'.
-				vip := util.JoinHostPortInt32(physicalIP, sourcePort)
-				klog.V(5).Infof("Removing gateway VIP: %s from load balancer: %s", vip, loadBalancer)
-				if err := ovn.deleteLoadBalancerVIP(loadBalancer, vip); err != nil {
-					klog.Error(err)
-				}
-			}
-		}
-	}
-}
-
-func (ovn *Controller) getNodeportIPs() ([]string, error) {
-	gatewayRouters, _, err := ovn.getOvnGateways()
-	if err != nil {
-		klog.Errorf("Error while searching for gateways: %v", err)
-		return nil, err
-	}
-	res := make([]string, 0)
-
-	for _, gatewayRouter := range gatewayRouters {
-		physicalIPs, err := ovn.getGatewayPhysicalIPs(gatewayRouter)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, physicalIPs...)
-	}
-	return res, nil
-}
-
-func (ovn *Controller) deleteExternalVIPs(service *kapi.Service, svcPort kapi.ServicePort) error {
-	if len(service.Spec.ExternalIPs) == 0 {
-		return nil
-	}
-	gateways, stderr, err := ovn.getOvnGateways()
-	if err != nil {
-		return fmt.Errorf("error: failed to get ovn gateways, stderr: %s, err: %v)", stderr, err)
-	}
-	for _, extIP := range service.Spec.ExternalIPs {
-		klog.V(5).Infof("Searching to remove ExternalIP VIPs - %s, %d", svcPort.Protocol, svcPort.Port)
-		for _, gateway := range gateways {
-			loadBalancer, err := ovn.getGatewayLoadBalancer(gateway, svcPort.Protocol)
-			if err != nil {
-				klog.Errorf("Gateway router: %s does not have load balancer, err: %v", gateway, err)
-				continue
-			}
-			vip := util.JoinHostPortInt32(extIP, svcPort.Port)
-			if err := ovn.deleteLoadBalancerVIP(loadBalancer, vip); err != nil {
-				klog.Error(err)
-			}
-		}
-	}
-	return nil
-}
-
-func (ovn *Controller) deleteIngressVIPs(service *kapi.Service, svcPort kapi.ServicePort) error {
-	gateways, stderr, err := ovn.getOvnGateways()
-	if err != nil {
-		return fmt.Errorf("error: failed to get ovn gateways, stderr: %s, err: %v)", stderr, err)
-	}
-	for _, ing := range service.Status.LoadBalancer.Ingress {
-		if ing.IP == "" {
-			continue
-		}
-		klog.V(5).Infof("Searching to remove Ingress VIPs - %s, %d", svcPort.Protocol, svcPort.Port)
-		ingressVIP := util.JoinHostPortInt32(ing.IP, svcPort.Port)
-		for _, gw := range gateways {
-			loadBalancer, err := ovn.getGatewayLoadBalancer(gw, svcPort.Protocol)
-			if err != nil {
-				klog.Errorf("Gateway router %s does not have load balancer (%v)", gw, err)
-				continue
-			}
-			if err := ovn.deleteLoadBalancerVIP(loadBalancer, ingressVIP); err != nil {
-				klog.Error(err)
-			}
-		}
-	}
-	return nil
 }
 
 // getJoinLRPAddresses check if IPs of gateway logical router port are within the join switch IP range, and return them if true.

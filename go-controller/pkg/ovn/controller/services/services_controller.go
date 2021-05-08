@@ -133,7 +133,7 @@ type Controller struct {
 
 // Run will not return until stopCh is closed. workers determines how many
 // endpoints will be handled in parallel.
-func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
+func (c *Controller) Run(workers int, stopCh <-chan struct{}, runRepair bool) error {
 	defer utilruntime.HandleCrash()
 	defer c.queue.ShutDown()
 
@@ -146,14 +146,15 @@ func (c *Controller) Run(workers int, stopCh <-chan struct{}) error {
 		return fmt.Errorf("error syncing cache")
 	}
 
-	// Run the repair controller only once
-	// it keeps in sync Kubernetes and OVN
-	// and handles removal of stale data on upgrades
-	klog.Info("Remove stale OVN services")
-	if err := c.repair.runOnce(); err != nil {
-		klog.Errorf("Error repairing services: %v")
+	if runRepair {
+		// Run the repair controller only once
+		// it keeps in sync Kubernetes and OVN
+		// and handles removal of stale data on upgrades
+		klog.Info("Remove stale OVN services")
+		if err := c.repair.runOnce(); err != nil {
+			klog.Errorf("Error repairing services: %v")
+		}
 	}
-
 	// Start the workers after the repair loop to avoid races
 	klog.Info("Starting workers")
 	for i := 0; i < workers; i++ {
@@ -432,13 +433,26 @@ func (c *Controller) addServiceToIdlingBalancer(vips sets.String, service *v1.Se
 	return nil
 }
 
+// RequestFullSync re-syncs every service that currently exists
+func (c *Controller) RequestFullSync() error {
+	klog.Info("Full service sync requested")
+	services, err := c.serviceLister.List(labels.Everything())
+	if err != nil {
+		return err
+	}
+	for _, service := range services {
+		c.onServiceAdd(service)
+	}
+	return nil
+}
+
 // handlers
 
-// onServiceUpdate queues the Service for processing.
+// onServiceAdd OnServiceUpdate queues the Service for processing.
 func (c *Controller) onServiceAdd(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("Couldn't get key for object %+v: %v", obj, err))
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for object %+v: %v", obj, err))
 		return
 	}
 	klog.V(4).Infof("Adding service %s", key)

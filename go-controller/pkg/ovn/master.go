@@ -687,7 +687,16 @@ func (oc *Controller) syncGatewayLogicalNetwork(node *kapi.Node, l3GatewayConfig
 	}
 
 	if l3GatewayConfig.NodePortEnable {
-		err = oc.handleNodePortLB(node)
+		gatewayRouter := types.GWRouterPrefix + node.Name
+		var physicalIPs []string
+		if physicalIPs, _ = oc.getGatewayPhysicalIPs(gatewayRouter); physicalIPs == nil {
+			return fmt.Errorf("gateway physical IP for node %q does not yet exist", node.Name)
+		}
+		// if new services controller run a full sync on all services
+		// services that have host network endpoints, are nodeport, external IP or ingress all have unique
+		// per-node load balancers. Since we cannot determine which services those are without significant parsing
+		// just sync all services
+		err = oc.svcController.RequestFullSync()
 	} else {
 		// nodePort disabled, delete gateway load balancers for this node.
 		gatewayRouter := util.GetGatewayRouterFromNode(node.Name)
